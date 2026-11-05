@@ -227,8 +227,9 @@ en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model train
 };
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
+const AUTO_REFRESH_MS=5*60*1000;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0;
+let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,requestInFlight=false;
 const fmt=(n,d=2)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -321,6 +322,8 @@ function draw(d,up){
 }
 
 async function predict(){
+  if(requestInFlight)return;
+  requestInFlight=true;
   $("run").disabled=true;$("err").classList.remove("show");status("busy","busy");$("price").classList.add("skel");
   try{
     const results=await Promise.all(HORIZONS.map(async h=>{
@@ -333,7 +336,7 @@ async function predict(){
     forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];
     horizon=data.horizon;status("ready","ok");render();
   }catch(e){status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
-  finally{$("run").disabled=false;$("price").classList.remove("skel")}
+  finally{requestInFlight=false;$("run").disabled=false;$("price").classList.remove("skel")}
 }
 
 function clearAll(){
@@ -358,6 +361,8 @@ iqd.oninput=()=>{const r=+rate.value;usd.value=iqd.value&&r>0?(iqd.value/r).toFi
 rate.oninput=()=>{const r=+rate.value;if(usd.value)iqd.value=r>0?(usd.value*r).toFixed(0):"";if(data)render(false)};
 goldWeight.oninput=calculateMaking;makingRate.oninput=calculateMaking;makingKarat.onchange=calculateMaking;
 paint();predict();
+setInterval(()=>{if(!document.hidden)predict()},AUTO_REFRESH_MS);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)predict()});
 </script>
 </body>
 </html>
