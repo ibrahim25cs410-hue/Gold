@@ -244,7 +244,7 @@ const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
 const AUTO_REFRESH_MS=250;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="";
+let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="",liveMode=false;
 const fmt=(n,d=3)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -376,13 +376,13 @@ async function predict(){
   if(!backgroundRefresh)status("busy","busy");
   try{
     const results=await Promise.all(HORIZONS.map(async h=>{
-      const r=await fetch(`${API}/predict?horizon=${h}&live=true`);
+      const r=await fetch(`${API}/predict?horizon=${h}&live=${liveMode}`);
       if(!r.ok)throw new Error("HTTP "+r.status);
       const j=await r.json();
       if(j.status==="error")throw new Error(j.message||"error");
       return j;
     }));
-    forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];
+    forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];liveMode=true;
     horizon=data.horizon;status("ready","ok");render();
   }catch(e){if(!backgroundRefresh)status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
   finally{requestInFlight=false}
