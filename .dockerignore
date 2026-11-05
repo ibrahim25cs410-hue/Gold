@@ -1,0 +1,10 @@
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+archive (1)
+run_app.bat
+index-1.html
+gold_clf_model.pkl
+gold_reg_model.pkl
