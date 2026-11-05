@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+archive (1)/
+gold_clf_model.pkl
+gold_reg_model.pkl
