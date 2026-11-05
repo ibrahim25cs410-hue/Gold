@@ -3,6 +3,16 @@ __pycache__
 *.pyc
 .git
 .gitignore
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+secrets*
+.netrc
 archive (1)
 run_app.bat
 index-1.html
