@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """FastAPI server for local use and Hugging Face Spaces."""
-import traceback
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import gold_engine as ge
 
 BASE_DIR = Path(__file__).resolve().parent
+logger = logging.getLogger(__name__)
 app = FastAPI(title="Aura Gold AI")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -40,6 +41,9 @@ def predict(horizon: int = 1, live: bool = False):
         return ge.predict_live(horizon) if live else ge.predict(horizon)
     except ge.EngineError as e:
         return {"status": "error", "message": str(e)}
-    except Exception as e:  # خطأ غير متوقع: نُظهره بوضوح بدل رقم وهمي
-        traceback.print_exc()
-        return {"status": "error", "message": f"{type(e).__name__}: {e}"}
+    except Exception:
+        logger.exception("Unexpected prediction failure")
+        return {
+            "status": "error",
+            "message": "تعذر تنفيذ التوقع حالياً. حاول مرة أخرى لاحقاً.",
+        }
