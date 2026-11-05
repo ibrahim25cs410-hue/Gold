@@ -5,6 +5,7 @@ gold_engine.py  -  المحرك المشترك لمشروع Aura Gold AI
 حتى لا يحصل اختلاف بين ميزات التدريب وميزات التوقع (سبب شائع للنتائج الثابتة).
 """
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -18,6 +19,9 @@ BUNDLE_PATH = Path(os.environ.get("GOLD_BUNDLE", BASE_DIR / "gold_bundle.pkl"))
 HORIZONS = (1, 2, 7, 30, 252)  # اليوم ، يومان، أسبوع، شهر، سنة تداول تقريباً
 WARMUP = 252                    # صفوف البداية التي لا تكتمل فيها المؤشرات
 OPTIONAL = ("rv_h", "rv_h_ratio")  # ميزات قد تكون ناقصة بشكل طبيعي
+_LIVE_CACHE = {"expires": 0.0, "data": None}
+_LIVE_CACHE_LOCK = threading.Lock()
+_LIVE_CACHE_SECONDS = 2.0
 
 
 class EngineError(Exception):
@@ -214,14 +218,21 @@ def predict_live(horizon):
     if int(horizon) not in HORIZONS:
         raise EngineError(f"المدة {horizon} غير مدرّبة. المتاح: {sorted(HORIZONS)}")
 
-    live = yf.download(
-        "GC=F",
-        period="2y",
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-        threads=False,
-    )
+    now = time.monotonic()
+    with _LIVE_CACHE_LOCK:
+        if _LIVE_CACHE["data"] is not None and now < _LIVE_CACHE["expires"]:
+            live = _LIVE_CACHE["data"].copy()
+        else:
+            live = yf.download(
+                "GC=F",
+                period="2y",
+                interval="1d",
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
+            _LIVE_CACHE["data"] = live.copy()
+            _LIVE_CACHE["expires"] = time.monotonic() + _LIVE_CACHE_SECONDS
     if live.empty:
         raise EngineError("تعذر جلب بيانات الذهب الحية حالياً.")
 

@@ -242,27 +242,30 @@ en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model train
 };
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
-const AUTO_REFRESH_MS=1*1000;
+const AUTO_REFRESH_MS=250;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false;
+let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="";
 const fmt=(n,d=3)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 function count(to){
   const el=$("price"),from=shown;shown=to;
+  const frame=++priceFrame;
   if(matchMedia("(prefers-reduced-motion: reduce)").matches){el.textContent="$"+fmt(to);return}
   const t0=performance.now();
-  (function f(t){const k=Math.min(1,(t-t0)/700),e=1-Math.pow(1-k,3);el.textContent="$"+fmt(from+(to-from)*e);if(k<1)requestAnimationFrame(f)})(t0);
+  (function f(t){if(frame!==priceFrame)return;const k=Math.min(1,(t-t0)/500),e=1-Math.pow(1-k,3);el.textContent="$"+fmt(from+(to-from)*e);if(k<1)requestAnimationFrame(f)})(t0);
 }
 
 function countLive(to){
   const el=$("livePrice"),from=liveShown;
   if(!from){liveShown=to;el.textContent="$"+fmt(to);return}
   liveShown=to;
+  const frame=++livePriceFrame;
   const t0=performance.now();
   (function f(t){
-    const k=Math.min(1,(t-t0)/700),e=1-Math.pow(1-k,3);
+    if(frame!==livePriceFrame)return;
+    const k=Math.min(1,(t-t0)/500),e=1-Math.pow(1-k,3);
     el.textContent="$"+fmt(from+(to-from)*e);
     if(k<1)requestAnimationFrame(f);
   })(t0);
@@ -298,7 +301,8 @@ function render(animate=true){
   }
   renderForecasts();
   calculateMaking();
-  $("tiles").innerHTML=Object.keys(DIV).map(k=>`<button class="tile ${k===unit?"on":""}" data-u="${k}"><span>${t.u[k]}</span><small>${t.un[k]}</small><b class="num">${data?"$"+fmt(data.target_price/DIV[k]):"—"}</b></button>`).join("");
+  const tiles=Object.keys(DIV).map(k=>`<button class="tile ${k===unit?"on":""}" data-u="${k}"><span>${t.u[k]}</span><small>${t.un[k]}</small><b class="num">${data?"$"+fmt(data.target_price/DIV[k]):"—"}</b></button>`).join("");
+  if($("tiles").innerHTML!==tiles)$("tiles").innerHTML=tiles;
   if(!data){$("empty").style.display="grid";return}
   const d=DIV[unit],direction=data.predicted_direction,up=direction==="BUY",down=direction==="SELL",pct=Number(data.predicted_pct_change),tgt=data.target_price/d,cur=data.current_price/d;
   animate?count(tgt):($("price").textContent="$"+fmt(tgt),shown=tgt);
@@ -314,7 +318,7 @@ function render(animate=true){
 
 function renderForecasts(){
   const t=T[lang],list=$("forecastList");
-  list.innerHTML=forecasts.map(item=>{
+  const html=forecasts.map(item=>{
     const direction=item.predicted_direction,cls=direction==="BUY"?"up":direction==="SELL"?"down":"neutral";
     return `<button class="forecast-item ${item.horizon===horizon?"active":""}" data-horizon="${item.horizon}">
       <small>${t.h[HORIZONS.indexOf(item.horizon)]}</small>
@@ -323,6 +327,7 @@ function renderForecasts(){
       <span>${item.predicted_pct_change>=0?"+":""}${fmt(item.predicted_pct_change)}%</span>
     </button>`;
   }).join("");
+  if(list.innerHTML!==html)list.innerHTML=html;
 }
 
 function calculateMaking(){
@@ -341,6 +346,9 @@ function draw(d,up){
   const t=T[lang],hist=(Array.isArray(data.history)?data.history:[]).map(p=>p/d),n=hist.length,cur=data.current_price/d,tgt=data.target_price/d;
   const dates=Array.isArray(data.history_dates)?data.history_dates:[];
   const labels=[...dates,t.asOf||data.as_of||t.now,t.tgt],col=up?css("--up"):css("--down"),gold=css("--gold"),mut=css("--mut"),ln=css("--line");
+  const chartKey=JSON.stringify([labels,hist,cur,tgt,up,d]);
+  if(chart&&chartKey===lastChartKey)return;
+  lastChartKey=chartKey;
   const datasets=[
     {data:[...hist,cur,null],borderColor:gold,backgroundColor:gold+"55",fill:true,borderWidth:2.5,tension:.3,pointRadius:c=>c.dataIndex===n?5:0,pointBackgroundColor:gold},
     {data:[...hist.map(()=>null),cur,tgt],borderColor:col,borderDash:[7,6],borderWidth:2.5,pointRadius:c=>c.dataIndex===n+1?7:0,pointBackgroundColor:col}
