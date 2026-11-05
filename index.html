@@ -227,7 +227,7 @@ en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model train
 };
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
-const AUTO_REFRESH_MS=5*60*1000;
+const AUTO_REFRESH_MS=2*1000;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,requestInFlight=false;
 const fmt=(n,d=2)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
