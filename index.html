@@ -227,9 +227,9 @@ en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model train
 };
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
-const AUTO_REFRESH_MS=2*1000;
+const AUTO_REFRESH_MS=1*1000;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,requestInFlight=false;
+let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false;
 const fmt=(n,d=2)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -239,6 +239,18 @@ function count(to){
   if(matchMedia("(prefers-reduced-motion: reduce)").matches){el.textContent="$"+fmt(to);return}
   const t0=performance.now();
   (function f(t){const k=Math.min(1,(t-t0)/700),e=1-Math.pow(1-k,3);el.textContent="$"+fmt(from+(to-from)*e);if(k<1)requestAnimationFrame(f)})(t0);
+}
+
+function countLive(to){
+  const el=$("livePrice"),from=liveShown;
+  if(!from){liveShown=to;el.textContent="$"+fmt(to);return}
+  liveShown=to;
+  const t0=performance.now();
+  (function f(t){
+    const k=Math.min(1,(t-t0)/700),e=1-Math.pow(1-k,3);
+    el.textContent="$"+fmt(from+(to-from)*e);
+    if(k<1)requestAnimationFrame(f);
+  })(t0);
 }
 
 function paint(){
@@ -261,7 +273,7 @@ function paint(){
 function render(animate=true){
   const t=T[lang];
   if(data){
-    $("livePrice").textContent="$"+fmt(data.current_price);
+    countLive(data.current_price);
     $("liveAsOf").textContent=data.as_of||"—";
     $("liveSource").textContent=data.source||"Yahoo Finance";
   }
@@ -324,7 +336,7 @@ function draw(d,up){
 async function predict(){
   if(requestInFlight)return;
   requestInFlight=true;
-  $("run").disabled=true;$("err").classList.remove("show");status("busy","busy");$("price").classList.add("skel");
+  $("run").disabled=true;$("err").classList.remove("show");status("busy","busy");
   try{
     const results=await Promise.all(HORIZONS.map(async h=>{
       const r=await fetch(`${API}/predict?horizon=${h}&live=true`);
@@ -336,13 +348,14 @@ async function predict(){
     forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];
     horizon=data.horizon;status("ready","ok");render();
   }catch(e){status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
-  finally{requestInFlight=false;$("run").disabled=false;$("price").classList.remove("skel")}
+  finally{requestInFlight=false;$("run").disabled=false}
 }
 
 function clearAll(){
   data=null;forecasts=[];shown=0;if(chart){chart.destroy();chart=null}
   ["price","cur","diff","iqdv","sig"].forEach(i=>$(i).textContent="—");
-  ["livePrice","liveAsOf","liveSource"].forEach(i=>$(i).textContent="—");
+  ["liveAsOf","liveSource"].forEach(i=>$(i).textContent="—");
+  liveShown=0;$("livePrice").textContent="—";
   $("dir").textContent="—";$("dir").className="badge";$("chgb").hidden=true;$("hz").textContent="";renderForecasts();
   render(false);status("ready","ok");
 }
