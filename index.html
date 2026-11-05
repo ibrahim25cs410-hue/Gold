@@ -27,6 +27,8 @@ nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(22px) saturate(1.4);ba
 .brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:17px}
 .brand img{width:36px;height:36px;border-radius:11px;object-fit:cover}
 .tools{display:flex;align-items:center;gap:8px}
+.nav-links{display:flex;align-items:center;gap:8px}
+.nav-link{width:38px;padding:0;justify-content:center}
 .chip{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:600;color:var(--text)}
 .chip.icon{width:38px;padding:0;justify-content:center}
 .chip:hover{background:var(--card2)}
@@ -104,8 +106,9 @@ html[data-theme=light] .run{color:#fff;background:linear-gradient(135deg,#c9921f
 .iqd b{font-size:16px;color:var(--text)}
 /* converter */
 .cv{display:grid;gap:12px}
-.cv input{width:100%;height:50px;padding:0 16px;border-radius:14px;background:var(--card2);border:1px solid var(--line);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
-.cv input:focus{outline:0;border-color:var(--gold)}
+.cv input,.cv select{width:100%;height:50px;padding:0 16px;border-radius:14px;background:var(--card2);border:1px solid var(--line);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.cv input:focus,.cv select:focus{outline:0;border-color:var(--gold)}
+.cv select{appearance:auto}
 .note{font-size:12px;color:var(--mut);margin-top:12px}
 footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;border-top:1px solid var(--line)}
 .skel{animation:p 1s infinite}
@@ -113,12 +116,19 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;bor
 @media(max-width:520px){.forecast-list{grid-template-columns:1fr 1fr}}
 @media(max-width:520px){.card{padding:20px;border-radius:24px}.stats{grid-template-columns:1fr 1fr}.chip .tx{display:none}.chip.pill{padding:0 12px}.top{padding-top:26px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+body[data-page=converter] main.grid>section,body[data-page=making] main.grid>section{display:none}
+body[data-page=converter] main.grid>#converterCard,body[data-page=making] main.grid>#makingCard{display:block;grid-column:span 12}
 </style>
 </head>
-<body>
+<body data-page="dashboard">
 <nav><div class="wrap nav">
   <div class="brand"><img src="icon.png" alt="" onerror="this.style.display='none'"><span>Aura Gold AI</span></div>
   <div class="tools">
+    <div class="nav-links">
+      <button class="chip icon nav-link" id="homeNav" type="button" aria-label="Home"><svg class="i" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/></svg></button>
+      <button class="chip icon nav-link" id="converterNav" type="button" aria-label="Converter"><svg class="i" viewBox="0 0 24 24"><path d="M7 7h10M7 17h10M10 4 7 7l3 3M14 14l3 3-3 3"/></svg></button>
+      <button class="chip icon nav-link" id="makingNav" type="button" aria-label="Making calculator"><svg class="i" viewBox="0 0 24 24"><path d="M6 3h12v18H6zM9 7h6M9 11h1M13 11h1M9 15h1M13 15h1M9 19h6"/></svg></button>
+    </div>
     <div class="chip pill" role="status"><i class="dot" id="dot"></i><span class="tx" id="st"></span></div>
     <button class="chip icon" id="theme" aria-label="Theme" type="button"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
     <button class="chip" id="lang" type="button"></button>
@@ -143,11 +153,6 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;bor
     <div class="panel">
       <div class="field"><label data-i="hor"></label><div class="seg" id="hseg" style="--n:5"><button data-v="1"></button><button data-v="2"></button><button data-v="7"></button><button data-v="30"></button><button data-v="252"></button></div></div>
       <div class="field"><label data-i="unit"></label><div class="seg" id="useg" style="--n:4"><button data-v="ounce"></button><button data-v="g24"></button><button data-v="g21"></button><button data-v="g18"></button></div></div>
-      <button class="run" id="run" data-i="run"></button>
-      <div class="acts">
-        <button class="chip" id="refresh"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/></svg><span data-i="refresh"></span></button>
-        <button class="chip" id="clear"><svg class="i" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg><span data-i="clear"></span></button>
-      </div>
       <div class="error-message" id="err" role="alert"></div>
     </div>
   </section>
@@ -189,7 +194,7 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;bor
     <div class="iqd"><span data-i="iqdv"></span><b class="num" id="iqdv">—</b></div>
   </section>
 
-  <section class="card c5">
+  <section class="card c5" id="converterCard">
     <h2 data-i="conv"></h2>
     <div class="cv">
       <div class="field"><label data-i="usd"></label><input id="usd" type="number" min="0" step="any" placeholder="0.00" inputmode="decimal"></div>
@@ -199,7 +204,7 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;bor
     <p class="note" data-i="rn"></p>
   </section>
 
-  <section class="card c7">
+  <section class="card c7" id="makingCard">
     <h2 data-i="makingTitle"></h2>
     <div class="cv">
       <div class="field"><label data-i="goldWeight"></label><input id="goldWeight" type="number" min="0" step="any" placeholder="0.00" inputmode="decimal"></div>
@@ -222,15 +227,15 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;bor
 const $=id=>document.getElementById(id),OZ=31.1035;
 const DIV={ounce:1,g24:OZ,g21:OZ*24/21,g18:OZ*24/18};
 const T={
-ar:{title:"توقّعات الذهب بذكاء البيانات",desc:"نموذج تعلّم آلي مدرَّب على الأسعار التاريخية. النتائج تقديرية وليست نصيحة استثمارية.",plabel:"السعر المتوقع للإغلاق",cur:"السعر الحالي",diff:"الفرق المتوقع",unitl:"الوحدة",hor:"مدة التوقع",unit:"الوحدة والعيار",run:"شغّل التوقع",refresh:"تحديث",clear:"مسح",chart:"مسار السعر والتوقع",e1:"لا توجد نتائج بعد",e2:"اضغط «شغّل التوقع» لعرض المسار.",lh:"السعر الحالي والتاريخ",lf:"التوقع",acc:"أداء النموذج",test:"دقة الاتجاه",model:"النموذج",sig:"الإشارة",warn:"الدقة محسوبة على بيانات اختبار منفصلة ولا تضمن نتائج المستقبل. تاريخ التوقع محسوب بأيام العمل تقريباً.",all:"السعر المتوقع بكل الوحدات",iqdv:"القيمة بالدينار العراقي",conv:"حاسبة الدولار والدينار",usd:"المبلغ بالدولار",iqd:"المبلغ بالدينار العراقي",rate:"سعر الصرف (دينار لكل دولار)",rn:"سعر الصرف يُدخَل يدوياً وليس مباشراً من السوق.",makingTitle:"حاسبة أجور الذهب والصياغة",goldWeight:"وزن الذهب (غرام)",makingRate:"أجرة الصياغة لكل غرام ($)",makingKarat:"عيار الذهب",goldValue:"قيمة الذهب الخام",makingValue:"قيمة المصنعية",makingTotal:"الإجمالي مع المصنعية",makingNote:"الحساب تقديري حسب السعر اللحظي وعيار الذهب. أدخل المصنعية بالدولار لكل غرام.",h:["اليوم","يومان","أسبوع","شهر","سنة تداول"],u:{ounce:"أونصة",g24:"غرام 24",g21:"غرام 21",g18:"غرام 18"},un:{ounce:"سعر الأونصة",g24:"عيار 24 · ذهب نقي",g21:"عيار 21",g18:"عيار 18"},buy:"إشارة شراء",sell:"إشارة بيع",hold:"انتظار",hz:n=>n==1?"بعد جلسة تداول":n==2?"بعد يومي تداول":n==7?"بعد أسبوع تداول":n==30?"بعد شهر تداول":"بعد سنة تداول تقريباً",liveTitle:"السعر اللحظي",liveNow:"بيانات السوق الآن",liveAsOf:"آخر تحديث",source:"المصدر",liveNote:"السعر اللحظي من السوق، أما البطاقات الأخرى فهي توقعات النموذج.",forecastList:"توقعات النموذج حسب المدة",ready:"النموذج جاهز",busy:"جارٍ التوقع…",off:"السيرفر غير متصل",lang:"English",theme:"تبديل المظهر",now:"الآن",tgt:"التوقع",errmsg:"تعذّر الاتصال بالسيرفر. شغّل run_app.bat ثم اضغط «تحديث».",up:"صعود",dn:"هبوط"},
-en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model trained on historical prices. Results are estimates, not investment advice.",plabel:"Model forecast",cur:"Current price",diff:"Expected move",unitl:"Unit",hor:"Forecast horizon",unit:"Unit and karat",run:"Run forecast",refresh:"Refresh",clear:"Clear",chart:"Price path and forecast",e1:"No results yet",e2:"Press Run forecast to draw the path.",lh:"Current price and history",lf:"Forecast",acc:"Model performance",test:"Direction accuracy",model:"Model",sig:"Signal",warn:"Accuracy is measured on a separate test set and does not guarantee future results. Forecast dates are approximate business days.",all:"Forecast in every unit",iqdv:"Value in Iraqi dinar",conv:"USD to IQD converter",usd:"Amount in USD",iqd:"Amount in IQD",rate:"Exchange rate (IQD per USD)",rn:"The exchange rate is entered manually and is not a live market feed.",makingTitle:"Gold making charge calculator",goldWeight:"Gold weight (grams)",makingRate:"Making charge per gram ($)",makingKarat:"Gold karat",goldValue:"Raw gold value",makingValue:"Making charge",makingTotal:"Total with making",makingNote:"Estimated from the live price and selected karat. Enter the making charge in USD per gram.",h:["1 session","2 sessions","1 week","1 month","1 trading year"],u:{ounce:"Ounce",g24:"Gram 24",g21:"Gram 21",g18:"Gram 18"},un:{ounce:"Per troy ounce",g24:"24K · pure gold",g21:"21K",g18:"18K"},buy:"Buy signal",sell:"Sell signal",hold:"Hold",hz:n=>n==1?"after 1 session":n==2?"after 2 sessions":n==7?"after 1 trading week":n==30?"after 1 trading month":"after about 1 trading year",liveTitle:"Live gold price",liveNow:"Live market data",liveAsOf:"Last update",source:"Source",liveNote:"The live price comes from the market; the other cards are model forecasts.",forecastList:"Model forecasts by horizon",ready:"Model ready",busy:"Forecasting…",off:"Server offline",lang:"العربية",theme:"Toggle theme",now:"Now",tgt:"Forecast",errmsg:"Cannot reach the server. Run run_app.bat, then press Refresh.",up:"Bullish",dn:"Bearish"}
+ar:{title:"توقّعات الذهب بذكاء البيانات",desc:"نموذج تعلّم آلي مدرَّب على الأسعار التاريخية. النتائج تقديرية وليست نصيحة استثمارية.",plabel:"السعر المتوقع للإغلاق",cur:"السعر الحالي",diff:"الفرق المتوقع",unitl:"الوحدة",hor:"مدة التوقع",unit:"الوحدة والعيار",run:"شغّل التوقع",refresh:"تحديث",clear:"مسح",home:"الرئيسية",converterPage:"حاسبة العملات",makingPage:"حاسبة المصنعية",chart:"مسار السعر والتوقع",e1:"لا توجد نتائج بعد",e2:"اضغط «شغّل التوقع» لعرض المسار.",lh:"السعر الحالي والتاريخ",lf:"التوقع",acc:"أداء النموذج",test:"دقة الاتجاه",model:"النموذج",sig:"الإشارة",warn:"الدقة محسوبة على بيانات اختبار منفصلة ولا تضمن نتائج المستقبل. تاريخ التوقع محسوب بأيام العمل تقريباً.",all:"السعر المتوقع بكل الوحدات",iqdv:"القيمة بالدينار العراقي",conv:"حاسبة الدولار والدينار",usd:"المبلغ بالدولار",iqd:"المبلغ بالدينار العراقي",rate:"سعر الصرف (دينار لكل دولار)",rn:"سعر الصرف يُدخَل يدوياً وليس مباشراً من السوق.",makingTitle:"حاسبة أجور الذهب والصياغة",goldWeight:"وزن الذهب (غرام)",makingRate:"أجرة الصياغة لكل غرام ($)",makingKarat:"عيار الذهب",goldValue:"قيمة الذهب الخام",makingValue:"قيمة المصنعية",makingTotal:"الإجمالي مع المصنعية",makingNote:"الحساب تقديري حسب السعر اللحظي وعيار الذهب. أدخل المصنعية بالدولار لكل غرام.",h:["اليوم","يومان","أسبوع","شهر","سنة تداول"],u:{ounce:"أونصة",g24:"غرام 24",g21:"غرام 21",g18:"غرام 18"},un:{ounce:"سعر الأونصة",g24:"عيار 24 · ذهب نقي",g21:"عيار 21",g18:"عيار 18"},buy:"إشارة شراء",sell:"إشارة بيع",hold:"انتظار",hz:n=>n==1?"بعد جلسة تداول":n==2?"بعد يومي تداول":n==7?"بعد أسبوع تداول":n==30?"بعد شهر تداول":"بعد سنة تداول تقريباً",liveTitle:"السعر اللحظي",liveNow:"بيانات السوق الآن",liveAsOf:"آخر تحديث",source:"المصدر",liveNote:"السعر اللحظي من السوق، أما البطاقات الأخرى فهي توقعات النموذج.",forecastList:"توقعات النموذج حسب المدة",ready:"النموذج جاهز",busy:"جارٍ التوقع…",off:"السيرفر غير متصل",lang:"English",theme:"تبديل المظهر",now:"الآن",tgt:"التوقع",errmsg:"تعذّر الاتصال بالسيرفر. شغّل run_app.bat ثم اضغط «تحديث».",up:"صعود",dn:"هبوط"},
+en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model trained on historical prices. Results are estimates, not investment advice.",plabel:"Model forecast",cur:"Current price",diff:"Expected move",unitl:"Unit",hor:"Forecast horizon",unit:"Unit and karat",run:"Run forecast",refresh:"Refresh",clear:"Clear",home:"Home",converterPage:"Currency converter",makingPage:"Making calculator",chart:"Price path and forecast",e1:"No results yet",e2:"Press Run forecast to draw the path.",lh:"Current price and history",lf:"Forecast",acc:"Model performance",test:"Direction accuracy",model:"Model",sig:"Signal",warn:"Accuracy is measured on a separate test set and does not guarantee future results. Forecast dates are approximate business days.",all:"Forecast in every unit",iqdv:"Value in Iraqi dinar",conv:"USD to IQD converter",usd:"Amount in USD",iqd:"Amount in IQD",rate:"Exchange rate (IQD per USD)",rn:"The exchange rate is entered manually and is not a live market feed.",makingTitle:"Gold making charge calculator",goldWeight:"Gold weight (grams)",makingRate:"Making charge per gram ($)",makingKarat:"Gold karat",goldValue:"Raw gold value",makingValue:"Making charge",makingTotal:"Total with making",makingNote:"Estimated from the live price and selected karat. Enter the making charge in USD per gram.",h:["1 session","2 sessions","1 week","1 month","1 trading year"],u:{ounce:"Ounce",g24:"Gram 24",g21:"Gram 21",g18:"Gram 18"},un:{ounce:"Per troy ounce",g24:"24K · pure gold",g21:"21K",g18:"18K"},buy:"Buy signal",sell:"Sell signal",hold:"Hold",hz:n=>n==1?"after 1 session":n==2?"after 2 sessions":n==7?"after 1 trading week":n==30?"after 1 trading month":"after about 1 trading year",liveTitle:"Live gold price",liveNow:"Live market data",liveAsOf:"Last update",source:"Source",liveNote:"The live price comes from the market; the other cards are model forecasts.",forecastList:"Model forecasts by horizon",ready:"Model ready",busy:"Forecasting…",off:"Server offline",lang:"العربية",theme:"Toggle theme",now:"Now",tgt:"Forecast",errmsg:"Cannot reach the server. Run run_app.bat then press Refresh.",up:"Bullish",dn:"Bearish"}
 };
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
 const AUTO_REFRESH_MS=1*1000;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false;
-const fmt=(n,d=2)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt=(n,d=3)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
@@ -260,6 +265,9 @@ function paint(){
   $("lang").textContent=t.lang;
   $("lang").setAttribute("aria-label",t.lang);
   $("theme").setAttribute("aria-label",t.theme);
+  $("homeNav").setAttribute("aria-label",t.home);
+  $("converterNav").setAttribute("aria-label",t.converterPage);
+  $("makingNav").setAttribute("aria-label",t.makingPage);
   [...$("hseg").children].forEach((b,i)=>{b.textContent=t.h[i];const on=b.dataset.v==horizon;b.setAttribute("aria-pressed",on);if(on)$("hseg").style.setProperty("--i",i)});
   [...$("useg").children].forEach((b,i)=>{b.textContent=t.u[b.dataset.v];const on=b.dataset.v===unit;b.setAttribute("aria-pressed",on);if(on)$("useg").style.setProperty("--i",i)});
   [...$("makingKarat").options].forEach(option=>{option.textContent=t.u[option.value]});
@@ -336,7 +344,9 @@ function draw(d,up){
 async function predict(){
   if(requestInFlight)return;
   requestInFlight=true;
-  $("run").disabled=true;$("err").classList.remove("show");status("busy","busy");
+  const backgroundRefresh=Boolean(data);
+  $("err").classList.remove("show");
+  if(!backgroundRefresh)status("busy","busy");
   try{
     const results=await Promise.all(HORIZONS.map(async h=>{
       const r=await fetch(`${API}/predict?horizon=${h}&live=true`);
@@ -347,20 +357,19 @@ async function predict(){
     }));
     forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];
     horizon=data.horizon;status("ready","ok");render();
-  }catch(e){status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
-  finally{requestInFlight=false;$("run").disabled=false}
+  }catch(e){if(!backgroundRefresh)status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
+  finally{requestInFlight=false}
 }
 
-function clearAll(){
-  data=null;forecasts=[];shown=0;if(chart){chart.destroy();chart=null}
-  ["price","cur","diff","iqdv","sig"].forEach(i=>$(i).textContent="—");
-  ["liveAsOf","liveSource"].forEach(i=>$(i).textContent="—");
-  liveShown=0;$("livePrice").textContent="—";
-  $("dir").textContent="—";$("dir").className="badge";$("chgb").hidden=true;$("hz").textContent="";renderForecasts();
-  render(false);status("ready","ok");
+function showPage(page){
+  document.body.dataset.page=page;
+  history.replaceState(null,"",page==="dashboard"?"#":"#"+page);
+  paint();
 }
 
-$("run").onclick=predict;$("refresh").onclick=predict;$("clear").onclick=clearAll;
+$("homeNav").onclick=()=>showPage("dashboard");
+$("converterNav").onclick=()=>showPage("converter");
+$("makingNav").onclick=()=>showPage("making");
 $("lang").onclick=()=>{lang=lang==="ar"?"en":"ar";sv("ag-lang",lang);paint()};
 $("theme").onclick=()=>{theme=theme==="dark"?"light":"dark";sv("ag-theme",theme);paint()};
 $("hseg").onclick=e=>{const b=e.target.closest("button");if(!b)return;horizon=+b.dataset.v;paint();if(data)predict()};
@@ -373,6 +382,8 @@ usd.oninput=()=>{const r=+rate.value;iqd.value=usd.value&&r>0?(usd.value*r).toFi
 iqd.oninput=()=>{const r=+rate.value;usd.value=iqd.value&&r>0?(iqd.value/r).toFixed(2):""};
 rate.oninput=()=>{const r=+rate.value;if(usd.value)iqd.value=r>0?(usd.value*r).toFixed(0):"";if(data)render(false)};
 goldWeight.oninput=calculateMaking;makingRate.oninput=calculateMaking;makingKarat.onchange=calculateMaking;
+const initialPage=location.hash==="#converter"||location.hash==="#making"?location.hash.slice(1):"dashboard";
+showPage(initialPage);
 paint();predict();
 setInterval(()=>{if(!document.hidden)predict()},AUTO_REFRESH_MS);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)predict()});
