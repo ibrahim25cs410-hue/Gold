@@ -294,10 +294,15 @@ function paint(){
 
 function render(animate=true){
   const t=T[lang];
-  if(data){
+  if(data?.live){
     countLive(data.current_price);
     $("liveAsOf").textContent=data.as_of||"—";
     $("liveSource").textContent=data.source||"Yahoo Finance";
+  }else{
+    $("livePrice").textContent="—";
+    liveShown=0;
+    $("liveAsOf").textContent="—";
+    $("liveSource").textContent="—";
   }
   renderForecasts();
   calculateMaking();
