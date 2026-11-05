@@ -179,6 +179,7 @@ def predict(horizon):
     cur = float(daily["Close"].iloc[-1])
     as_of = daily["Date"].iloc[-1]
     mt = m["metrics"]
+    history = daily.iloc[-31:-1]
     return {
         "status": "ok",
         "horizon": int(horizon),
@@ -196,7 +197,8 @@ def predict(horizon):
         "as_of": as_of.strftime("%Y-%m-%d"),
         "data_age_days": int((pd.Timestamp.now().normalize() - as_of.normalize()).days),
         "trained_at": bundle["trained_at"],
-        "history": [round(float(v), 2) for v in daily["Close"].iloc[-31:-1]],
+        "history": [round(float(v), 2) for v in history["Close"]],
+        "history_dates": [value.strftime("%Y-%m-%d") for value in history["Date"]],
     }
 
 
@@ -270,6 +272,7 @@ def predict_live(horizon):
 
     current = float(live["Close"].iloc[-1])
     metrics = model["metrics"]
+    history = live.iloc[-31:-1]
     return {
         "status": "ok",
         "source": "Yahoo Finance GC=F",
@@ -286,5 +289,6 @@ def predict_live(horizon):
         "edge": bool(metrics["edge"]),
         "as_of": live["Date"].iloc[-1].strftime("%Y-%m-%d"),
         "trained_at": st["bundle"]["trained_at"],
-        "history": [round(float(v), 2) for v in live["Close"].iloc[-31:-1]],
+        "history": [round(float(v), 2) for v in history["Close"]],
+        "history_dates": [value.strftime("%Y-%m-%d") for value in history["Date"]],
     }
