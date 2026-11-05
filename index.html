@@ -27,15 +27,22 @@ nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(22px) saturate(1.4);ba
 .brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:17px}
 .brand img{width:36px;height:36px;border-radius:11px;object-fit:cover}
 .tools{display:flex;align-items:center;gap:8px}
-.nav-links{display:flex;align-items:center;gap:8px}
-.nav-link{width:38px;padding:0;justify-content:center}
+.nav-links{display:flex;align-items:center;gap:8px;direction:ltr}
+.nav-link{flex:0 0 40px;width:40px;height:40px;padding:0;justify-content:center;border-radius:14px;transition:background-color .2s ease,border-color .2s ease,box-shadow .2s ease,transform .2s ease}
 .chip{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:600;color:var(--text)}
-.chip.icon{width:38px;padding:0;justify-content:center}
-.chip:hover{background:var(--card2)}
+.chip.icon{flex:0 0 40px;width:40px;height:40px;padding:0;justify-content:center;border-radius:14px}
+.chip#lang{min-width:76px;justify-content:center;direction:ltr;white-space:nowrap}
+.chip:hover{background:var(--card2);border-color:color-mix(in srgb,var(--gold) 42%,var(--line));box-shadow:0 6px 18px var(--glow)}
+.chip.icon:hover{transform:translateY(-1px)}
+.chip:active{transform:translateY(0) scale(.96)}
+.chip.icon:active{transform:scale(.94)}
+.nav-link[aria-current=true]{color:var(--gold);background:color-mix(in srgb,var(--gold) 12%,var(--card));border-color:color-mix(in srgb,var(--gold) 52%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 10%,transparent),0 8px 20px var(--glow)}
+.nav-link .i,.chip.icon .i{transition:transform .25s ease,filter .25s ease}
+.chip.icon:hover .i{filter:drop-shadow(0 0 5px var(--glow))}
 .dot{width:8px;height:8px;border-radius:50%;background:#8a8a95;flex:none}
 .dot.ok{background:var(--up);box-shadow:0 0 10px var(--up)}.dot.err{background:var(--down)}.dot.busy{background:var(--gold);animation:p 1s infinite}
 @keyframes p{50%{opacity:.35}}
-svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.i{display:block;width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 /* title */
 .top{padding:38px 0 26px}
 .top h1{font-size:clamp(30px,5vw,52px);font-weight:800;line-height:1.2;max-width:760px}
@@ -114,8 +121,9 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;bor
 .skel{animation:p 1s infinite}
 @media(max-width:900px){.c8,.c7,.c5,.c4{grid-column:span 12}.hero{grid-template-columns:1fr;gap:24px}.forecast-list{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:520px){.forecast-list{grid-template-columns:1fr 1fr}}
-@media(max-width:520px){.card{padding:20px;border-radius:24px}.stats{grid-template-columns:1fr 1fr}.chip .tx{display:none}.chip.pill{padding:0 12px}.top{padding-top:26px}}
+@media(max-width:520px){.card{padding:20px;border-radius:24px}.stats{grid-template-columns:1fr 1fr}.chip .tx{display:none}.chip.pill{padding:0 12px}.chip#lang{min-width:40px;padding:0}.top{padding-top:26px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+body[data-page=dashboard] main.grid>#converterCard,body[data-page=dashboard] main.grid>#makingCard{display:none}
 body[data-page=converter] main.grid>section,body[data-page=making] main.grid>section{display:none}
 body[data-page=converter] main.grid>#converterCard,body[data-page=making] main.grid>#makingCard{display:block;grid-column:span 12}
 </style>
@@ -364,6 +372,9 @@ async function predict(){
 function showPage(page){
   document.body.dataset.page=page;
   history.replaceState(null,"",page==="dashboard"?"#":"#"+page);
+  $("homeNav").setAttribute("aria-current",page==="dashboard"?"true":"false");
+  $("converterNav").setAttribute("aria-current",page==="converter"?"true":"false");
+  $("makingNav").setAttribute("aria-current",page==="making"?"true":"false");
   paint();
 }
 
