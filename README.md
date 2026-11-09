@@ -25,6 +25,17 @@ The app listens on port `7860`, which is the port expected by Hugging Face Space
 The browser automatically uses the same Space URL for `/predict`, so it does not
 depend on the laptop's `127.0.0.1`.
 
+## Deploy to Render
+
+1. In Render, choose **New +** → **Blueprint** and select this GitHub repository.
+2. Render reads `render.yaml`, builds the included `Dockerfile`, and exposes the
+   web service on Render's assigned `PORT`.
+3. Use the generated `onrender.com` URL. Do not open `index.html` from the laptop;
+   the dashboard uses the same public URL for `/predict`.
+4. Render's health check is `/health`. It reports the market as closed during the
+   weekend and serves the last known close instead of treating that as a server
+   failure.
+
 ## Project structure
 
 ```text
@@ -100,3 +111,6 @@ The app loads the saved model and calls Python directly through PyWebView's Java
 - Model performance must be judged against the baseline MAE and on newer unseen data.
 - The dataset is expected to contain daily OHLC prices in a consistent currency/unit.
 - Keep the original dataset source and license information.
+- When the gold market is closed (Friday through Sunday, or before Monday 01:00 Iraq time),
+  the app uses the last available model data instead of treating the closed market as a
+  server connection error.
