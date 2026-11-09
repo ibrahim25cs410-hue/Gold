@@ -323,7 +323,7 @@ def get_live_price():
     result = {
         "status": "ok",
         "live": source != "آخر إغلاق معروف",
-        "current_price": round(current_price, 2),
+        "current_price": round(current_price, 3),
         "as_of": timestamp.strftime("%Y-%m-%d %H:%M"),
         "source": source,
     }

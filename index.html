@@ -243,6 +243,7 @@ en:{title:"Gold forecasts, powered by data",desc:"A machine-learning model train
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
 const AUTO_REFRESH_MS=300000;
+const LIVE_QUOTE_REFRESH_MS=30000;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,liveQuote=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="",liveMode=true;
 const fmt=(n,d=3)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -402,6 +403,20 @@ async function predict(){
   finally{requestInFlight=false}
 }
 
+async function refreshLiveQuote(){
+  if(document.hidden)return;
+  try{
+    const r=await fetch(`${API}/live-price`);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const quote=await r.json();
+    if(quote.status==="error")throw new Error(quote.message||"live price error");
+    liveQuote=quote;
+    render(false);
+  }catch(e){
+    console.error("Live price refresh failed:",e);
+  }
+}
+
 function showPage(page){
   document.body.dataset.page=page;
   history.replaceState(null,"",page==="dashboard"?"#":"#"+page);
@@ -435,8 +450,9 @@ const initialPage=location.hash==="#converter"||location.hash==="#making"?locati
 showPage(initialPage);
 paint();updateClock();predict();
 setInterval(updateClock,1000);
+setInterval(refreshLiveQuote,LIVE_QUOTE_REFRESH_MS);
 setInterval(()=>{if(!document.hidden)predict()},AUTO_REFRESH_MS);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)predict()});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){refreshLiveQuote();predict()}});
 </script>
 </body>
 </html>
