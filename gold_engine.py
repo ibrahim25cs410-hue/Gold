@@ -225,7 +225,7 @@ def predict_live(horizon):
         else:
             live = yf.download(
                 "GC=F",
-                period="2y",
+                period="5y",
                 interval="1d",
                 auto_adjust=False,
                 progress=False,
