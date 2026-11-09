@@ -7,6 +7,7 @@ gold_engine.py  -  المحرك المشترك لمشروع Aura Gold AI
 import os
 import threading
 import time
+from datetime import timedelta, timezone
 from pathlib import Path
 
 import joblib
@@ -22,6 +23,9 @@ OPTIONAL = ("rv_h", "rv_h_ratio")  # ميزات قد تكون ناقصة بشك�
 _LIVE_CACHE = {"expires": 0.0, "data": None}
 _LIVE_CACHE_LOCK = threading.Lock()
 _LIVE_CACHE_SECONDS = 60.0
+_QUOTE_CACHE = {"expires": 0.0, "data": None}
+_QUOTE_CACHE_LOCK = threading.Lock()
+_QUOTE_CACHE_SECONDS = 30.0
 _PREDICTION_CACHE: dict[int, dict] = {}
 _LIVE_RESULT_CACHE: dict[int, dict] = {}
 _RESULT_CACHE_LOCK = threading.Lock()
@@ -274,14 +278,59 @@ def _load_live_data():
 
 def get_live_price():
     """Return the live price without running any AI model."""
-    live = _load_live_data()
-    return {
+    try:
+        import yfinance as yf
+    except ImportError as exc:
+        raise EngineError(
+            "السعر الحي يحتاج مكتبة yfinance. ثبّتها من requirements.txt."
+        ) from exc
+
+    with _QUOTE_CACHE_LOCK:
+        now = time.monotonic()
+        if _QUOTE_CACHE["data"] is not None and now < _QUOTE_CACHE["expires"]:
+            return dict(_QUOTE_CACHE["data"])
+        quote = yf.download(
+            "GC=F",
+            period="1d",
+            interval="1m",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+
+    if not quote.empty:
+        if isinstance(quote.columns, pd.MultiIndex):
+            quote.columns = quote.columns.get_level_values(0)
+        quote = quote.reset_index()
+        date_column = "Datetime" if "Datetime" in quote.columns else "Date"
+        quote = quote.rename(columns={date_column: "Timestamp"})
+        quote["Close"] = pd.to_numeric(quote["Close"], errors="coerce")
+        quote = quote.dropna(subset=["Timestamp", "Close"])
+    if quote.empty:
+        live = _load_live_data()
+        timestamp = live["Date"].iloc[-1].to_pydatetime().replace(tzinfo=timezone.utc)
+        current_price = float(live["Close"].iloc[-1])
+        source = "آخر إغلاق معروف"
+    else:
+        latest = quote.iloc[-1]
+        timestamp = pd.Timestamp(latest["Timestamp"]).to_pydatetime()
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        current_price = float(latest["Close"])
+        source = "Yahoo Finance GC=F"
+
+    timestamp = timestamp.astimezone(timezone(timedelta(hours=3)))
+    result = {
         "status": "ok",
-        "live": True,
-        "current_price": round(float(live["Close"].iloc[-1]), 2),
-        "as_of": live["Date"].iloc[-1].strftime("%Y-%m-%d"),
-        "source": "Yahoo Finance GC=F",
+        "live": source != "آخر إغلاق معروف",
+        "current_price": round(current_price, 2),
+        "as_of": timestamp.strftime("%Y-%m-%d %H:%M"),
+        "source": source,
     }
+    with _QUOTE_CACHE_LOCK:
+        _QUOTE_CACHE["data"] = result
+        _QUOTE_CACHE["expires"] = time.monotonic() + _QUOTE_CACHE_SECONDS
+    return dict(result)
 
 
 def predict_live(horizon):
