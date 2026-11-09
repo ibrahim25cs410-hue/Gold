@@ -244,7 +244,7 @@ const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,2,7,30,252];
 const AUTO_REFRESH_MS=300000;
 const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="",liveMode=true;
+let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,liveQuote=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="",liveMode=true;
 const fmt=(n,d=3)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -294,11 +294,11 @@ function paint(){
 
 function render(animate=true){
   const t=T[lang];
-  if(data?.live){
-    countLive(data.current_price);
-    $("liveAsOf").textContent=data.as_of||"—";
-    $("liveSource").textContent=data.source||"Yahoo Finance";
-    $("liveNow").textContent=data.market_open===false?t.marketClosed:t.liveNow;
+  if(liveQuote){
+    countLive(liveQuote.current_price);
+    $("liveAsOf").textContent=liveQuote.as_of||"—";
+    $("liveSource").textContent=liveQuote.source||"Yahoo Finance";
+    $("liveNow").textContent=liveQuote.market_open===false?t.marketClosed:t.liveNow;
   }else{
     $("livePrice").textContent="—";
     liveShown=0;
@@ -382,15 +382,21 @@ async function predict(){
   $("err").classList.remove("show");
   if(!backgroundRefresh)status("busy","busy");
   try{
+    const liveResponse=await fetch(`${API}/live-price`);
+    if(!liveResponse.ok)throw new Error("HTTP "+liveResponse.status);
+    const liveQuoteResult=await liveResponse.json();
+    if(liveQuoteResult.status==="error")throw new Error(liveQuoteResult.message||"live price error");
+    liveQuote=liveQuoteResult;
+    render(false);
     const results=await Promise.all(HORIZONS.map(async h=>{
-      const r=await fetch(`${API}/predict?horizon=${h}&live=${liveMode}`);
+      const r=await fetch(`${API}/predict?horizon=${h}&live=true`);
       if(!r.ok)throw new Error("HTTP "+r.status);
       const j=await r.json();
       if(j.status==="error")throw new Error(j.message||"error");
       return j;
     }));
     forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];
-    liveMode=results.some(item=>item.market_open!==false);
+    liveMode=true;
     horizon=data.horizon;status("ready","ok");render();
   }catch(e){if(!backgroundRefresh)status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
   finally{requestInFlight=false}

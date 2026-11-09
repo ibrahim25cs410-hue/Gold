@@ -21,7 +21,11 @@ WARMUP = 252                    # صفوف البداية التي لا تكتم
 OPTIONAL = ("rv_h", "rv_h_ratio")  # ميزات قد تكون ناقصة بشكل طبيعي
 _LIVE_CACHE = {"expires": 0.0, "data": None}
 _LIVE_CACHE_LOCK = threading.Lock()
-_LIVE_CACHE_SECONDS = 2.0
+_LIVE_CACHE_SECONDS = 60.0
+_PREDICTION_CACHE: dict[int, dict] = {}
+_LIVE_RESULT_CACHE: dict[int, dict] = {}
+_RESULT_CACHE_LOCK = threading.Lock()
+_RESULT_CACHE_SECONDS = 60.0
 
 
 class EngineError(Exception):
@@ -141,24 +145,36 @@ def make_dataset(horizon, daily, hourly=None):
 
 # -------------------------------------------------------------------- التوقع
 _cache = {"key": None}
+_STATE_LOCK = threading.Lock()
 
 
 def _state():
     files = [DATA_DIR / "XAU_1d_data.csv", DATA_DIR / "XAU_1h_data.csv", BUNDLE_PATH]
     key = tuple(p.stat().st_mtime if p.exists() else 0 for p in files)
-    if _cache["key"] != key:
-        if not BUNDLE_PATH.exists():
-            raise EngineError("النماذج غير موجودة. شغّل train_gold_pro.py أولاً.")
-        daily, hourly = load_daily(), load_hourly()
-        _cache.update(key=key, daily=daily, feats=make_features(daily, hourly),
-                      bundle=joblib.load(BUNDLE_PATH))
+    if _cache["key"] == key:
+        return _cache
+    with _STATE_LOCK:
+        if _cache["key"] != key:
+            if not BUNDLE_PATH.exists():
+                raise EngineError("النماذج غير موجودة. شغّل train_gold_pro.py أولاً.")
+            daily, hourly = load_daily(), load_hourly()
+            _cache.update(key=key, daily=daily, feats=make_features(daily, hourly),
+                          bundle=joblib.load(BUNDLE_PATH))
+            with _RESULT_CACHE_LOCK:
+                _PREDICTION_CACHE.clear()
+                _LIVE_RESULT_CACHE.clear()
     return _cache
 
 
 def predict(horizon):
     st = _state()
+    horizon = int(horizon)
+    with _RESULT_CACHE_LOCK:
+        cached = _PREDICTION_CACHE.get(horizon)
+        if cached is not None:
+            return dict(cached)
     bundle = st["bundle"]
-    m = bundle["models"].get(int(horizon))
+    m = bundle["models"].get(horizon)
     if m is None:
         raise EngineError(f"المدة {horizon} غير مدرّبة. المتاح: {sorted(bundle['models'])}")
 
@@ -184,9 +200,9 @@ def predict(horizon):
     as_of = daily["Date"].iloc[-1]
     mt = m["metrics"]
     history = daily.iloc[-31:-1]
-    return {
+    result = {
         "status": "ok",
-        "horizon": int(horizon),
+        "horizon": horizon,
         "current_price": round(cur, 2),
         "target_price": round(cur * (1 + pct / 100), 2),
         "predicted_pct_change": round(pct, 3),
@@ -204,10 +220,13 @@ def predict(horizon):
         "history": [round(float(v), 2) for v in history["Close"]],
         "history_dates": [value.strftime("%Y-%m-%d") for value in history["Date"]],
     }
+    with _RESULT_CACHE_LOCK:
+        _PREDICTION_CACHE[horizon] = result
+    return dict(result)
 
 
-def predict_live(horizon):
-    """Predict from fresh daily market data using the trained feature contract."""
+def _load_live_data():
+    """Fetch and normalize the latest daily gold market data."""
     try:
         import yfinance as yf
     except ImportError as exc:
@@ -215,17 +234,14 @@ def predict_live(horizon):
             "التوقع الحي يحتاج مكتبة yfinance. ثبّتها من requirements.txt."
         ) from exc
 
-    if int(horizon) not in HORIZONS:
-        raise EngineError(f"المدة {horizon} غير مدرّبة. المتاح: {sorted(HORIZONS)}")
-
-    now = time.monotonic()
     with _LIVE_CACHE_LOCK:
+        now = time.monotonic()
         if _LIVE_CACHE["data"] is not None and now < _LIVE_CACHE["expires"]:
             live = _LIVE_CACHE["data"].copy()
         else:
             live = yf.download(
                 "GC=F",
-                period="5y",
+                period="3y",
                 interval="1d",
                 auto_adjust=False,
                 progress=False,
@@ -233,9 +249,9 @@ def predict_live(horizon):
             )
             _LIVE_CACHE["data"] = live.copy()
             _LIVE_CACHE["expires"] = time.monotonic() + _LIVE_CACHE_SECONDS
+
     if live.empty:
         raise EngineError("تعذر جلب بيانات الذهب الحية حالياً.")
-
     if isinstance(live.columns, pd.MultiIndex):
         live.columns = live.columns.get_level_values(0)
     required = ["Open", "High", "Low", "Close", "Volume"]
@@ -253,9 +269,36 @@ def predict_live(horizon):
     live = live.dropna(subset=["Date", "Open", "High", "Low", "Close"])
     if len(live) < WARMUP + max(HORIZONS):
         raise EngineError("بيانات السوق الحية غير كافية لحساب المؤشرات.")
+    return live
 
+
+def get_live_price():
+    """Return the live price without running any AI model."""
+    live = _load_live_data()
+    return {
+        "status": "ok",
+        "live": True,
+        "current_price": round(float(live["Close"].iloc[-1]), 2),
+        "as_of": live["Date"].iloc[-1].strftime("%Y-%m-%d"),
+        "source": "Yahoo Finance GC=F",
+    }
+
+
+def predict_live(horizon):
+    """Predict from fresh daily market data using the trained feature contract."""
+    horizon = int(horizon)
+    now = time.monotonic()
+    with _RESULT_CACHE_LOCK:
+        cached = _LIVE_RESULT_CACHE.get(horizon)
+        if cached is not None and now < cached["expires"]:
+            return dict(cached["data"])
+
+    if horizon not in HORIZONS:
+        raise EngineError(f"المدة {horizon} غير مدرّبة. المتاح: {sorted(HORIZONS)}")
+
+    live = _load_live_data()
     st = _state()
-    model = st["bundle"]["models"][int(horizon)]
+    model = st["bundle"]["models"][horizon]
     features = make_features(live)
     x = features.iloc[[-1]][st["bundle"]["features"]]
     missing_features = [
@@ -284,11 +327,11 @@ def predict_live(horizon):
     current = float(live["Close"].iloc[-1])
     metrics = model["metrics"]
     history = live.iloc[-31:-1]
-    return {
+    result = {
         "status": "ok",
         "source": "Yahoo Finance GC=F",
         "live": True,
-        "horizon": int(horizon),
+        "horizon": horizon,
         "current_price": round(current, 2),
         "target_price": round(current * (1 + pct / 100), 2),
         "predicted_pct_change": round(pct, 3),
@@ -303,3 +346,9 @@ def predict_live(horizon):
         "history": [round(float(v), 2) for v in history["Close"]],
         "history_dates": [value.strftime("%Y-%m-%d") for value in history["Date"]],
     }
+    with _RESULT_CACHE_LOCK:
+        _LIVE_RESULT_CACHE[horizon] = {
+            "expires": time.monotonic() + _RESULT_CACHE_SECONDS,
+            "data": result,
+        }
+    return dict(result)

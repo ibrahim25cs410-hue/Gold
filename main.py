@@ -54,6 +54,24 @@ def health():
     }
 
 
+@app.get("/live-price")
+def live_price():
+    try:
+        result = ge.get_live_price()
+        result["market_open"] = is_market_open()
+        if not result["market_open"]:
+            result["source"] = "آخر إغلاق معروف"
+        return result
+    except ge.EngineError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception:
+        logger.exception("Unexpected live price failure")
+        return {
+            "status": "error",
+            "message": "تعذر جلب السعر الحي حالياً. حاول مرة أخرى لاحقاً.",
+        }
+
+
 @app.get("/predict")
 def predict(horizon: int = 1, live: bool = False):
     try:
