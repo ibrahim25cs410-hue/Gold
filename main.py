@@ -3,13 +3,12 @@
 import logging
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-import gold_engine as ge
+import aura_price_engine as pe
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
@@ -21,7 +20,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 MARKET_TZ = timezone(timedelta(hours=3), name="Asia/Baghdad")
 MARKET_OPEN_TIME = time(1, 0)
 MARKET_CLOSED_WEEKDAYS = (4, 5, 6)  # Friday through Sunday
-_LAST_LIVE_RESULTS: dict[int, dict[str, Any]] = {}
 
 
 def is_market_open(now: datetime | None = None) -> bool:
@@ -49,7 +47,7 @@ def icon():
 def health():
     return {
         "status": "ok",
-        "models_ready": ge.BUNDLE_PATH.exists(),
+        "models_ready": pe.BUNDLE_PATH.exists(),
         "live_market": is_market_open(),
     }
 
@@ -57,12 +55,12 @@ def health():
 @app.get("/live-price")
 def live_price():
     try:
-        result = ge.get_live_price()
+        result = pe.live_price()
         result["market_open"] = is_market_open()
         if not result["market_open"]:
             result["source"] = "آخر إغلاق معروف"
         return result
-    except ge.EngineError as e:
+    except pe.PriceEngineError as e:
         return {"status": "error", "message": str(e)}
     except Exception:
         logger.exception("Unexpected live price failure")
@@ -73,26 +71,13 @@ def live_price():
 
 
 @app.get("/predict")
-def predict(horizon: int = 1, live: bool = False):
+def predict(horizon: int = 1):
     try:
         market_open = is_market_open()
-        if live and not market_open:
-            cached = _LAST_LIVE_RESULTS.get(int(horizon))
-            if cached is None:
-                cached = ge.predict(horizon)
-                _LAST_LIVE_RESULTS[int(horizon)] = dict(cached)
-            else:
-                cached = dict(cached)
-            cached["live"] = True
-            cached["source"] = "آخر إغلاق معروف"
-            cached["market_open"] = False
-            return cached
-        result = ge.predict_live(horizon) if live else ge.predict(horizon)
+        result = pe.predict(horizon)
         result["market_open"] = market_open
-        if live:
-            _LAST_LIVE_RESULTS[int(horizon)] = dict(result)
         return result
-    except ge.EngineError as e:
+    except pe.PriceEngineError as e:
         return {"status": "error", "message": str(e)}
     except Exception:
         logger.exception("Unexpected prediction failure")
