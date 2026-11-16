@@ -6,16 +6,14 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import torch
 import yfinance as yf
-from torch import nn
 
 from build_dataset import (
     add_relative_features,
     add_technical_features,
     download_ticker,
 )
-from train_price_forecaster import daily_features, flatten, hourly_features
+from price_features import daily_features, flatten, hourly_features
 
 
 ROOT = Path(__file__).resolve().parent
@@ -24,19 +22,6 @@ BUNDLE_PATH = ROOT / "aura_price_models.pkl"
 
 class PriceEngineError(Exception):
     """Expected error while loading data or producing a price forecast."""
-
-
-class PriceLSTM(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int = 64) -> None:
-        super().__init__()
-        self.lstm = nn.LSTM(
-            input_size, hidden_size, num_layers=2, dropout=0.2, batch_first=True
-        )
-        self.output = nn.Linear(hidden_size, 3)
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        output, _ = self.lstm(inputs)
-        return self.output(output[:, -1])
 
 
 _lock = threading.Lock()
@@ -104,18 +89,48 @@ def _download_live_daily() -> pd.DataFrame:
     return frames[0].join(frames[1:], how="left").sort_index().ffill().dropna()
 
 
+def _sigmoid(values: np.ndarray) -> np.ndarray:
+    return np.float32(1.0) / (np.float32(1.0) + np.exp(-values))
+
+
+def _lstm_layer(sequence: np.ndarray, state: dict, layer: int) -> np.ndarray:
+    weight_ih = np.asarray(state[f"lstm.weight_ih_l{layer}"], dtype=np.float32)
+    weight_hh = np.asarray(state[f"lstm.weight_hh_l{layer}"], dtype=np.float32)
+    bias_ih = np.asarray(state[f"lstm.bias_ih_l{layer}"], dtype=np.float32)
+    bias_hh = np.asarray(state[f"lstm.bias_hh_l{layer}"], dtype=np.float32)
+    hidden_size = weight_hh.shape[1]
+    hidden = np.zeros(hidden_size, dtype=np.float32)
+    cell = np.zeros(hidden_size, dtype=np.float32)
+    output = np.empty((len(sequence), hidden_size), dtype=np.float32)
+
+    for step, inputs in enumerate(sequence):
+        gates = weight_ih @ inputs + bias_ih
+        gates += weight_hh @ hidden + bias_hh
+        input_gate, forget_gate, candidate, output_gate = np.split(gates, 4)
+        input_gate = _sigmoid(input_gate)
+        forget_gate = _sigmoid(forget_gate)
+        candidate = np.tanh(candidate)
+        output_gate = _sigmoid(output_gate)
+        cell = forget_gate * cell + input_gate * candidate
+        hidden = output_gate * np.tanh(cell)
+        output[step] = hidden
+    return output
+
+
 def _predict_lstm(meta: dict, features: pd.DataFrame) -> np.ndarray:
-    model = PriceLSTM(meta["lstm_input_size"])
-    model.load_state_dict(meta["lstm_state"])
-    model.eval()
-    scaled = meta["x_scaler"].transform(features[meta["features"]])
+    selected = features[meta["features"]]
+    scaled = meta["x_scaler"].transform(selected)
     window = meta["lstm_window"]
     if len(scaled) < window:
         raise PriceEngineError("بيانات السوق الحية غير كافية لتشغيل LSTM.")
-    sequence = torch.from_numpy(scaled[-window:][None].astype(np.float32))
-    with torch.no_grad():
-        result = model(sequence).numpy()
-    return meta["y_scaler"].inverse_transform(result)[0]
+    sequence = scaled[-window:].astype(np.float32, copy=False)
+    state = meta["lstm_state"]
+    first_layer = _lstm_layer(sequence, state, 0)
+    second_layer = _lstm_layer(first_layer, state, 1)
+    output_weight = np.asarray(state["output.weight"], dtype=np.float32)
+    output_bias = np.asarray(state["output.bias"], dtype=np.float32)
+    scaled_prediction = (output_weight @ second_layer[-1] + output_bias)[None, :]
+    return meta["y_scaler"].inverse_transform(scaled_prediction)[0]
 
 
 def predict(horizon: int) -> dict:
