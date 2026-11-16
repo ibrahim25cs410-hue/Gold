@@ -20,6 +20,7 @@ ensure_yfinance()
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from price_features import completed_bar_trend
 
 
 ROOT = Path(__file__).resolve().parent
@@ -172,24 +173,8 @@ def add_relative_features(data: pd.DataFrame) -> pd.DataFrame:
     data["Is_London_NY"] = data["Hour"].between(12, 17).astype("int8")
     data["Is_Asian"] = data["Hour"].between(0, 7).astype("int8")
     data["Volume_Ratio"] = data["Volume"] / data["Volume"].rolling(20).mean().shift(1)
-    close_4h = data["Close"].resample("4h").last()
-    ema_20_4h = close_4h.ewm(span=20, adjust=False).mean()
-    ema_50_4h = close_4h.ewm(span=50, adjust=False).mean()
-    data["Trend_4H"] = (
-        (ema_20_4h > ema_50_4h)
-        .reindex(data.index, method="ffill")
-        .fillna(0)
-        .astype("int8")
-    )
-    close_1d = data["Close"].resample("1D").last()
-    ema_20_1d = close_1d.ewm(span=20, adjust=False).mean()
-    ema_50_1d = close_1d.ewm(span=50, adjust=False).mean()
-    data["Trend_1D"] = (
-        (ema_20_1d > ema_50_1d)
-        .reindex(data.index, method="ffill")
-        .fillna(0)
-        .astype("int8")
-    )
+    data["Trend_4H"] = completed_bar_trend(data["Close"], data.index, "4h")
+    data["Trend_1D"] = completed_bar_trend(data["Close"], data.index, "1D")
     return data
 
 

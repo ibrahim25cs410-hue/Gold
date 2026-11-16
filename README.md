@@ -41,74 +41,97 @@ depend on the laptop's `127.0.0.1`.
 ## Project structure
 
 ```text
-aura_gold_ai_desktop/
-├── archive/
-│   └── XAU_1d_data.csv       # Put your Kaggle gold dataset here
-├── models/                  # Trained model bundle is saved here
-├── aura_gold_ai_dashboard.html
-├── train_gold_pro.py
+C:\Gold/
+├── build_dataset.py
+├── train_price_forecaster.py
+├── export_data_and_charts.py
+├── app.py
 ├── main.py
-└── requirements.txt
+├── aura_price_engine.py
+├── price_features.py
+├── gold_full_dataset.csv
+├── aura_price_models.pkl
+└── charts/
 ```
 
 ## 1) Install dependencies
 
-Open a terminal in this folder:
+Use the project virtual environment on Windows:
 
 ```bash
-python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Windows:
+Create `.venv` first if it does not exist. The training job also requires the
+local PyTorch training dependency; it is not imported by the serving API.
+
+## 2) Build the hourly dataset
 
 ```powershell
-.venv\Scripts\activate
+.\.venv\Scripts\python.exe .\build_dataset.py
 ```
 
-Then:
+The script fetches hourly gold, oil, Treasury-yield, and dollar data from
+Yahoo Finance and writes `gold_full_dataset.csv`.
+
+## 3) Train the price forecaster
 
 ```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+.\.venv\Scripts\python.exe .\train_price_forecaster.py
 ```
 
-PyWebView on Windows may need WebView2 Runtime. Install Microsoft's WebView2 Runtime if the app window does not open.
+This creates `aura_price_models.pkl` using:
 
-## 2) Add the dataset
+- Hourly gold, crude oil, Treasury 10-year yield, and U.S. dollar data for the
+  next 1-hour candle.
+- Five years of daily data for the 7- and 30-trading-day forecasts.
+- Engineered technical and relative market features; raw OHLC and future-target
+  columns are excluded from model inputs.
+- CatBoost + a 14-step LSTM for the hourly forecast, and Ridge + CatBoost for
+  the daily forecasts.
+- Chronological train, validation-tuning, independent conformal-calibration,
+  and holdout partitions separated by horizon-sized embargoes.
 
-Copy your CSV to:
+The evaluation reports Close MAE, Close MAPE, the naive close-price baseline,
+and empirical 95%/99% range coverage on the untouched holdout. Calibration
+quantiles and ensemble weights are selected using validation data only.
 
-`archive/XAU_1d_data.csv`
+Latest saved holdout audit:
 
-The trainer expects columns representing Date, Open, High, Low, Close.
-Column names are case-insensitive. Volume is optional.
+- 1H: Close MAE $9.249 vs. $9.133 baseline; MAPE 0.230%; 95%/99% coverage
+  94%/98%.
+- 7 trading days: Close MAE $168.729 vs. $120.013 baseline; MAPE 4.022%;
+  coverage 100%/100%.
+- 30 trading days: Close MAE $423.514 vs. $339.876 baseline; MAPE 10.233%;
+  coverage 98%/100%.
 
-## 3) Train
+The current model did not beat the naive close-price baseline on any horizon.
+The dashboard reports this explicitly; calibrated interval coverage does not
+mean that point forecasts are more accurate or guarantee future performance.
+
+## 4) Export audit data and charts
+
+```powershell
+.\.venv\Scripts\python.exe .\export_data_and_charts.py
+```
+
+This writes the cleaned and feature CSV files and four 300-DPI audit charts
+under `charts/`.
+
+## 5) Run the local API and dashboard
 
 ```bash
-python train_gold_pro.py
+.\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-It creates:
-
-`gold_bundle.pkl`
-
-It trains separate models for 1, 2, 7, 30 and 252 trading-day returns. These represent approximately the next session, two sessions, one week, one month and one trading year. Training uses chronological walk-forward validation, a gap equal to the forecast horizon, and a final untouched holdout. Features are causal: each row uses only data available by that day's close, and hourly volatility is shifted to the previous day.
-
-## 4) Run the desktop app
-
-```bash
-python main.py
-```
-
-`run_app.bat` starts this same safe API entry point (`main.py`). Do not use the legacy standalone model files (`gold_clf_model.pkl` and `gold_reg_model.pkl`).
-
-The app loads the saved model and calls Python directly through PyWebView's JavaScript API. It does not need a separate web server.
+Open `http://127.0.0.1:8000` in a browser. Do not use the legacy standalone
+model files (`gold_clf_model.pkl` and `gold_reg_model.pkl`).
 
 ## Important limitations
 
 - Forecasts are estimates, not financial advice or guaranteed future prices.
-- The 7/30 horizons mean trading rows in the dataset, not calendar days.
+- Horizon 1 is the next hourly candle (`1H`); horizons 7 and 30 are trading
+  days, not calendar days.
 - Displayed future dates are approximate weekdays and do not account for market holidays.
 - Model performance must be judged against the baseline MAE and on newer unseen data.
 - The dataset is expected to contain daily OHLC prices in a consistent currency/unit.

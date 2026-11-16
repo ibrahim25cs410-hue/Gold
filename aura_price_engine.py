@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import copy
 import threading
+import time
+from _thread import LockType
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar, cast
 
 import joblib
 import numpy as np
@@ -13,7 +18,13 @@ from build_dataset import (
     add_technical_features,
     download_ticker,
 )
-from price_features import daily_features, flatten, hourly_features
+from price_features import (
+    blend_returns,
+    daily_features,
+    flatten,
+    hourly_features,
+    sequence_window,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -26,6 +37,39 @@ class PriceEngineError(Exception):
 
 _lock = threading.Lock()
 _bundle_cache: dict[str, object] = {"mtime": None, "bundle": None}
+_data_cache_lock = threading.Lock()
+_data_cache_miss_locks: dict[str, LockType] = {}
+_data_cache: dict[str, tuple[float, object]] = {}
+LIVE_PRICE_TTL_SECONDS = 30
+MARKET_DATA_TTL_SECONDS = 300
+_CachedValue = TypeVar("_CachedValue")
+
+
+def _copy_cached(value: object) -> object:
+    if isinstance(value, pd.DataFrame):
+        return value.copy(deep=True)
+    return copy.deepcopy(value)
+
+
+def _cached_value(
+    key: str, ttl_seconds: int, loader: Callable[[], _CachedValue]
+) -> _CachedValue:
+    now = time.monotonic()
+    with _data_cache_lock:
+        entry = _data_cache.get(key)
+        if entry is not None and now < entry[0]:
+            return cast(_CachedValue, _copy_cached(entry[1]))
+        miss_lock = _data_cache_miss_locks.setdefault(key, threading.Lock())
+
+    with miss_lock:
+        with _data_cache_lock:
+            entry = _data_cache.get(key)
+            if entry is not None and time.monotonic() < entry[0]:
+                return cast(_CachedValue, _copy_cached(entry[1]))
+        value = loader()
+        with _data_cache_lock:
+            _data_cache[key] = (time.monotonic() + ttl_seconds, _copy_cached(value))
+        return cast(_CachedValue, _copy_cached(value))
 
 
 def load_bundle() -> dict:
@@ -51,7 +95,7 @@ def load_bundle() -> dict:
         return _bundle_cache["bundle"]  # type: ignore[return-value]
 
 
-def _download_live_hourly() -> pd.DataFrame:
+def _fetch_live_hourly() -> pd.DataFrame:
     gold = download_ticker("GC=F", ["Open", "High", "Low", "Close", "Volume"])
     oil = download_ticker("CL=F", ["Close"]).rename(columns={"Close": "Oil_Close"})
     treasury = download_ticker("^TNX", ["Close"]).rename(
@@ -68,7 +112,13 @@ def _download_live_hourly() -> pd.DataFrame:
     return data.replace([np.inf, -np.inf], np.nan).dropna()
 
 
-def _download_live_daily() -> pd.DataFrame:
+def _download_live_hourly() -> pd.DataFrame:
+    return _cached_value(
+        "market_hourly", MARKET_DATA_TTL_SECONDS, _fetch_live_hourly
+    )
+
+
+def _fetch_live_daily() -> pd.DataFrame:
     frames = []
     for name, ticker in {
         "Gold": "GC=F",
@@ -97,6 +147,49 @@ def _download_live_daily() -> pd.DataFrame:
             part = raw[["Close"]].rename(columns={"Close": f"{name}_Close"})
         frames.append(part)
     return frames[0].join(frames[1:], how="left").sort_index().ffill().dropna()
+
+
+def _download_live_daily() -> pd.DataFrame:
+    return _cached_value("market_daily", MARKET_DATA_TTL_SECONDS, _fetch_live_daily)
+
+
+def _fetch_live_quote() -> dict:
+    data = flatten(
+        yf.download(
+            "GC=F",
+            period="1d",
+            interval="1m",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+    )
+    if data.empty:
+        data = flatten(
+            yf.download(
+                "GC=F",
+                period="5d",
+                interval="1h",
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
+        )
+    if data.empty or "Close" not in data:
+        raise PriceEngineError("تعذر جلب سعر الذهب الحي من Yahoo Finance.")
+    index = pd.DatetimeIndex(pd.to_datetime(data.index))
+    if index.tz is not None:
+        index = index.tz_convert("UTC").tz_localize(None)
+    data.index = index
+    close = pd.to_numeric(data["Close"], errors="coerce").dropna()
+    if close.empty:
+        raise PriceEngineError("بيانات الذهب الحية لا تحتوي على أسعار إغلاق صالحة.")
+    return {
+        "status": "ok",
+        "current_price": round(float(close.iloc[-1]), 3),
+        "as_of": close.index[-1].strftime("%Y-%m-%d %H:%M"),
+        "source": "Yahoo Finance GC=F",
+    }
 
 
 def _sigmoid(values: np.ndarray) -> np.ndarray:
@@ -133,7 +226,9 @@ def _predict_lstm(meta: dict, features: pd.DataFrame) -> np.ndarray:
     window = meta["lstm_window"]
     if len(scaled) < window:
         raise PriceEngineError("بيانات السوق الحية غير كافية لتشغيل LSTM.")
-    sequence = scaled[-window:].astype(np.float32, copy=False)
+    sequence = sequence_window(scaled, len(scaled) - 1, window).astype(
+        np.float32, copy=False
+    )
     state = meta["lstm_state"]
     first_layer = _lstm_layer(sequence, state, 0)
     second_layer = _lstm_layer(first_layer, state, 1)
@@ -158,15 +253,17 @@ def predict(horizon: int) -> dict:
     x = features[meta["features"]].iloc[[-1]]
     cat_return = np.asarray(meta["catboost"].predict(x)).reshape(-1)
     if horizon == 1:
-        lstm_return = _predict_lstm(meta, features)
-        returns = 0.60 * cat_return + 0.40 * lstm_return
+        secondary_return = _predict_lstm(meta, features)
     else:
-        ridge_return = meta["ridge"].predict(
+        secondary_return = meta["ridge"].predict(
             meta["ridge_scaler"].transform(x)
         ).reshape(-1)
-        returns = meta["damping_factor"] * (
-            0.50 * ridge_return + 0.50 * cat_return
-        )
+    returns = blend_returns(
+        cat_return,
+        secondary_return,
+        meta["ensemble_weights"],
+        meta["damping_factor"],
+    )
     current = float(data["Close"].iloc[-1])
     prices = current * (1.0 + returns) + np.asarray(
         meta.get("bias_correction_usd", np.zeros(3))
@@ -203,8 +300,15 @@ def predict(horizon: int) -> dict:
             ),
         },
         "model_accuracy_pct": round(float(metrics["accuracy_pct"]), 4),
-        "range_coverage_pct": round(
-            float(meta.get("range_coverage_99_pct", meta["range_coverage_pct"])), 4
+        "range_coverage_95_pct": round(float(meta["range_coverage_95_pct"]), 4),
+        "range_coverage_99_pct": round(float(meta["range_coverage_99_pct"]), 4),
+        "range_coverage_pct": round(float(meta["range_coverage_99_pct"]), 4),
+        "mae_close_usd": round(float(metrics["mae_close_usd"]), 4),
+        "mae_high_usd": round(float(metrics["mae_high_usd"]), 4),
+        "mae_low_usd": round(float(metrics["mae_low_usd"]), 4),
+        "mape_close_pct": round(float(metrics["mape_close_pct"]), 4),
+        "baseline_mae_close_usd": round(
+            float(meta["baseline_metrics"]["mae_close_usd"]), 4
         ),
         "mae_usd": round(float(metrics["mae_usd"]), 4),
         "baseline_mae_usd": round(float(meta["baseline_metrics"]["mae_usd"]), 4),
@@ -214,10 +318,4 @@ def predict(horizon: int) -> dict:
 
 
 def live_price() -> dict:
-    data = _download_live_hourly()
-    return {
-        "status": "ok",
-        "current_price": round(float(data["Close"].iloc[-1]), 3),
-        "as_of": data.index[-1].strftime("%Y-%m-%d %H:%M"),
-        "source": "Yahoo Finance GC=F",
-    }
+    return _cached_value("live_price", LIVE_PRICE_TTL_SECONDS, _fetch_live_quote)

@@ -7,6 +7,34 @@ import pandas as pd
 TARGET_COLUMNS = ["Target_High", "Target_Low", "Target_Close"]
 
 
+def completed_bar_trend(close: pd.Series, index: pd.Index, rule: str) -> pd.Series:
+    completed_close = close.resample(rule, label="left", closed="left").last().shift(1)
+    fast = completed_close.ewm(span=20, adjust=False).mean()
+    slow = completed_close.ewm(span=50, adjust=False).mean()
+    trend = (fast > slow).reindex(index, method="ffill").fillna(False)
+    return trend.astype("int8")
+
+
+def sequence_window(features: np.ndarray, current_index: int, window: int) -> np.ndarray:
+    start = current_index - window + 1
+    if window < 1 or start < 0 or current_index >= len(features):
+        raise ValueError("Current row does not have a complete feature window.")
+    return features[start : current_index + 1]
+
+
+def blend_returns(
+    catboost_returns: np.ndarray,
+    secondary_returns: np.ndarray,
+    weights: dict[str, float],
+    damping_factor: float,
+) -> np.ndarray:
+    catboost_weight = weights["catboost"]
+    return damping_factor * (
+        catboost_weight * catboost_returns
+        + (1.0 - catboost_weight) * secondary_returns
+    )
+
+
 def flatten(data: pd.DataFrame) -> pd.DataFrame:
     if isinstance(data.columns, pd.MultiIndex):
         data = data.copy()

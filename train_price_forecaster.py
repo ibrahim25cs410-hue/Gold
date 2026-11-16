@@ -13,13 +13,23 @@ from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from price_features import TARGET_COLUMNS, daily_features, flatten, hourly_features
+from price_features import (
+    TARGET_COLUMNS,
+    blend_returns,
+    daily_features,
+    flatten,
+    hourly_features,
+    sequence_window,
+)
 
 
 ROOT = Path(__file__).resolve().parent
 HOURLY_FILE = ROOT / "gold_full_dataset.csv"
 BUNDLE_FILE = ROOT / "aura_price_models.pkl"
 SEED = 42
+HOLDOUT_ROWS = {1: 200, 7: 100, 30: 100}
+VALIDATION_FRACTION = 0.20
+LSTM_WINDOW = 14
 
 
 def download_daily() -> pd.DataFrame:
@@ -90,9 +100,11 @@ def sequence_data(
     indices: np.ndarray,
     window: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    indices = indices[indices >= window]
+    indices = indices[indices >= window - 1]
     return (
-        np.stack([features[i - window : i] for i in indices]).astype(np.float32),
+        np.stack([sequence_window(features, int(i), window) for i in indices]).astype(
+            np.float32
+        ),
         targets[indices].astype(np.float32),
     )
 
@@ -103,7 +115,7 @@ def train_lstm(
     train_indices: np.ndarray,
     validation_indices: np.ndarray,
 ) -> tuple[PriceLSTM, StandardScaler, StandardScaler, int]:
-    window = 14
+    window = LSTM_WINDOW
     x_scaler = StandardScaler().fit(features.iloc[train_indices])
     y_scaler = StandardScaler().fit(targets[train_indices])
     scaled_x = x_scaler.transform(features)
@@ -175,36 +187,135 @@ def predict_lstm(
 
 
 def metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
-    mae = float(np.mean(np.abs(actual - predicted)))
-    mape = float(
-        np.mean(np.abs((actual - predicted) / np.maximum(np.abs(actual), 1e-8)))
-        * 100
-    )
+    errors = np.abs(actual - predicted)
+    close_actual = np.maximum(np.abs(actual[:, 2]), 1e-8)
+    mape_close = float(np.mean(errors[:, 2] / close_actual) * 100)
     return {
-        "mae_usd": mae,
-        "mape_pct": mape,
-        "accuracy_pct": 100.0 - mape,
+        "mae_usd": float(np.mean(errors)),
+        "mae_high_usd": float(np.mean(errors[:, 0])),
+        "mae_low_usd": float(np.mean(errors[:, 1])),
+        "mae_close_usd": float(np.mean(errors[:, 2])),
+        "mape_close_pct": mape_close,
+        "mape_pct": mape_close,
+        "accuracy_pct": 100.0 - mape_close,
     }
 
 
 def conformal_calibration(
     actual: np.ndarray, predicted: np.ndarray
 ) -> dict[str, dict[str, float]]:
-    """Calibrate asymmetric high/low margins from validation residuals."""
+    """Calibrate finite-sample asymmetric margins on an independent validation slice."""
+    def conformal_quantile(values: np.ndarray, level: float) -> float:
+        values = np.asarray(values, dtype=float)
+        if values.size == 0:
+            raise ValueError("Conformal calibration requires validation residuals.")
+        rank = min(values.size, int(np.ceil((values.size + 1) * level)))
+        return float(np.partition(values, rank - 1)[rank - 1])
+
     result: dict[str, dict[str, float]] = {}
     for level in (0.95, 0.99):
         result[f"{int(level * 100)}"] = {
-            "close_margin_usd": float(
-                np.quantile(np.abs(actual[:, 2] - predicted[:, 2]), level)
+            "close_margin_usd": conformal_quantile(
+                np.abs(actual[:, 2] - predicted[:, 2]), level
             ),
-            "high_margin_usd": float(
-                np.quantile(np.abs(actual[:, 0] - predicted[:, 0]), level)
+            "high_margin_usd": conformal_quantile(
+                np.abs(actual[:, 0] - predicted[:, 0]), level
             ),
-            "low_margin_usd": float(
-                np.quantile(np.abs(actual[:, 1] - predicted[:, 1]), level)
+            "low_margin_usd": conformal_quantile(
+                np.abs(actual[:, 1] - predicted[:, 1]), level
             ),
         }
     return result
+
+
+def chronological_split(n_rows: int, horizon: int) -> dict[str, np.ndarray]:
+    holdout_rows = HOLDOUT_ROWS[horizon]
+    test_start = n_rows - holdout_rows
+    validation_end = test_start - horizon
+    validation_rows = max(
+        int(np.ceil(test_start * VALIDATION_FRACTION)),
+        2 * horizon + 60,
+    )
+    validation_start = validation_end - validation_rows
+    train_end = validation_start - horizon
+    validation_size = validation_end - validation_start
+    tuning_size = (validation_size - horizon) // 2
+    calibration_start = validation_start + tuning_size + horizon
+
+    if (
+        train_end < LSTM_WINDOW
+        or tuning_size < 20
+        or validation_end - calibration_start < 30
+        or test_start < validation_end + horizon
+    ):
+        raise ValueError(
+            f"بيانات غير كافية لتقسيم زمني مع embargo للأفق {horizon}."
+        )
+
+    return {
+        "train": np.arange(0, train_end),
+        "validation_tuning": np.arange(validation_start, validation_start + tuning_size),
+        "validation_calibration": np.arange(calibration_start, validation_end),
+        "holdout": np.arange(test_start, n_rows),
+        "embargo": np.asarray([horizon]),
+    }
+
+
+def select_ensemble(
+    catboost_returns: np.ndarray,
+    secondary_returns: np.ndarray,
+    current_prices: np.ndarray,
+    actual_prices: np.ndarray,
+) -> tuple[dict[str, float], float]:
+    best_score = float("inf")
+    best_weights: dict[str, float] | None = None
+    best_damping = 1.0
+    for catboost_weight in np.linspace(0.0, 1.0, 21):
+        weights = {"catboost": float(catboost_weight)}
+        for damping_factor in np.linspace(0.5, 1.0, 11):
+            returns = blend_returns(
+                catboost_returns,
+                secondary_returns,
+                weights,
+                float(damping_factor),
+            )
+            predicted_prices = current_prices * (1.0 + returns)
+            score = float(np.mean(np.abs(actual_prices - predicted_prices)))
+            if score < best_score:
+                best_score = score
+                best_weights = weights
+                best_damping = float(damping_factor)
+    if best_weights is None:
+        raise RuntimeError("تعذر اختيار أوزان الدمج من مجموعة التحقق.")
+    return best_weights, best_damping
+
+
+def range_coverages(
+    actual: np.ndarray,
+    predicted: np.ndarray,
+    conformal: dict[str, dict[str, float]],
+) -> dict[str, float]:
+    coverages = {}
+    for level in ("95", "99"):
+        low, high = range_bounds(predicted, conformal[level])
+        coverages[level] = float(
+            np.mean((actual[:, 2] >= low) & (actual[:, 2] <= high)) * 100
+        )
+    return coverages
+
+
+def range_bounds(
+    predicted: np.ndarray, margins: dict[str, float]
+) -> tuple[np.ndarray, np.ndarray]:
+    low = np.minimum(
+        predicted[:, 1] - margins["low_margin_usd"],
+        predicted[:, 2] - margins["close_margin_usd"],
+    )
+    high = np.maximum(
+        predicted[:, 0] + margins["high_margin_usd"],
+        predicted[:, 2] + margins["close_margin_usd"],
+    )
+    return low, high
 
 
 def train_horizon(
@@ -218,17 +329,13 @@ def train_horizon(
     targets = frame[targets.columns]
     target_prices = target_prices.loc[frame.index]
     close = data.loc[frame.index, "Close"]
-    split = len(frame) - (200 if horizon == 1 else 100)
-    train_indices = np.arange(split)
-    test_indices = np.arange(split, len(frame))
-    validation_start = max(20, int(len(train_indices) * 0.9))
-    fit_indices = train_indices[:validation_start]
-    validation_indices = train_indices[validation_start:]
-    if len(validation_indices) < 10:
-        validation_indices = fit_indices[-min(20, len(fit_indices)) :]
+    split = chronological_split(len(frame), horizon)
+    train_indices = split["train"]
+    tuning_indices = split["validation_tuning"]
+    calibration_indices = split["validation_calibration"]
+    test_indices = split["holdout"]
 
     if horizon == 1:
-        # Keep the proven hourly CatBoost + LSTM path unchanged.
         model = CatBoostRegressor(
             iterations=1200,
             depth=7,
@@ -241,18 +348,25 @@ def train_horizon(
         )
         model.fit(features.iloc[train_indices], targets.iloc[train_indices])
         lstm, x_scaler, y_scaler, window = train_lstm(
-            features, targets.to_numpy(), fit_indices, validation_indices
+            features, targets.to_numpy(), train_indices, tuning_indices
         )
-        cat_validation = model.predict(features.iloc[validation_indices])
-        lstm_validation = predict_lstm(
-            lstm, x_scaler, y_scaler, features, validation_indices, window
+        cat_tuning = np.asarray(model.predict(features.iloc[tuning_indices])).reshape(-1, 3)
+        lstm_tuning = predict_lstm(
+            lstm, x_scaler, y_scaler, features, tuning_indices, window
         )
-        validation_returns = 0.60 * cat_validation + 0.40 * lstm_validation
-        cat_returns = model.predict(features.iloc[test_indices])
-        lstm_returns = predict_lstm(
+        cat_calibration = np.asarray(
+            model.predict(features.iloc[calibration_indices])
+        ).reshape(-1, 3)
+        lstm_calibration = predict_lstm(
+            lstm, x_scaler, y_scaler, features, calibration_indices, window
+        )
+        cat_test = np.asarray(model.predict(features.iloc[test_indices])).reshape(-1, 3)
+        lstm_test = predict_lstm(
             lstm, x_scaler, y_scaler, features, test_indices, window
         )
-        blended_returns = 0.60 * cat_returns + 0.40 * lstm_returns
+        secondary_tuning = lstm_tuning
+        secondary_calibration = lstm_calibration
+        secondary_test = lstm_test
         extra = {
             "lstm_state": {
                 name: value.detach().cpu().numpy().copy()
@@ -264,12 +378,11 @@ def train_horizon(
             "y_scaler": y_scaler,
         }
     else:
-        # Longer horizons use regularized, damped returns to avoid level drift.
-        ridge_scaler = StandardScaler().fit(features.iloc[fit_indices])
+        ridge_scaler = StandardScaler().fit(features.iloc[train_indices])
         ridge = Ridge(alpha=150.0)
         ridge.fit(
-            ridge_scaler.transform(features.iloc[fit_indices]),
-            targets.iloc[fit_indices],
+            ridge_scaler.transform(features.iloc[train_indices]),
+            targets.iloc[train_indices],
         )
         model = CatBoostRegressor(
             iterations=800,
@@ -282,54 +395,70 @@ def train_horizon(
             allow_writing_files=False,
             thread_count=1,
         )
-        model.fit(features.iloc[fit_indices], targets.iloc[fit_indices])
-        ridge_validation = ridge.predict(
-            ridge_scaler.transform(features.iloc[validation_indices])
+        model.fit(features.iloc[train_indices], targets.iloc[train_indices])
+        ridge_tuning = ridge.predict(
+            ridge_scaler.transform(features.iloc[tuning_indices])
         )
-        cat_validation = model.predict(features.iloc[validation_indices])
+        cat_tuning = np.asarray(model.predict(features.iloc[tuning_indices])).reshape(-1, 3)
+        ridge_calibration = ridge.predict(
+            ridge_scaler.transform(features.iloc[calibration_indices])
+        )
+        cat_calibration = np.asarray(
+            model.predict(features.iloc[calibration_indices])
+        ).reshape(-1, 3)
         ridge_test = ridge.predict(ridge_scaler.transform(features.iloc[test_indices]))
-        cat_test = model.predict(features.iloc[test_indices])
-        damping = 0.5
-        validation_returns = damping * (0.50 * ridge_validation + 0.50 * cat_validation)
-        blended_returns = damping * (0.50 * ridge_test + 0.50 * cat_test)
+        cat_test = np.asarray(model.predict(features.iloc[test_indices])).reshape(-1, 3)
+        secondary_tuning = ridge_tuning
+        secondary_calibration = ridge_calibration
+        secondary_test = ridge_test
         extra = {
             "ridge": ridge,
             "ridge_scaler": ridge_scaler,
-            "damping_factor": damping,
         }
-    validation_current = close.iloc[validation_indices].to_numpy()[:, None]
-    validation_actual = target_prices.iloc[validation_indices].to_numpy()
-    validation_predicted = validation_current * (1.0 + validation_returns)
-    if horizon == 1:
-        bias_correction = np.zeros(3)
-    else:
-        # Correct the systematic multi-day level bias using validation only.
-        bias_correction = np.mean(validation_actual - validation_predicted, axis=0)
-        validation_predicted = validation_predicted + bias_correction
+
+    tuning_current = close.iloc[tuning_indices].to_numpy()[:, None]
+    tuning_actual = target_prices.iloc[tuning_indices].to_numpy()
+    weights, damping_factor = select_ensemble(
+        cat_tuning, secondary_tuning, tuning_current, tuning_actual
+    )
+    tuning_returns = blend_returns(
+        cat_tuning, secondary_tuning, weights, damping_factor
+    )
+    tuning_predicted = tuning_current * (1.0 + tuning_returns)
+    bias_correction = np.mean(tuning_actual - tuning_predicted, axis=0)
+
+    calibration_current = close.iloc[calibration_indices].to_numpy()[:, None]
+    calibration_actual = target_prices.iloc[calibration_indices].to_numpy()
+    calibration_returns = blend_returns(
+        cat_calibration, secondary_calibration, weights, damping_factor
+    )
+    calibration_predicted = (
+        calibration_current * (1.0 + calibration_returns) + bias_correction
+    )
+    conformal = conformal_calibration(calibration_actual, calibration_predicted)
+
     current = close.iloc[test_indices].to_numpy()[:, None]
+    blended_returns = blend_returns(cat_test, secondary_test, weights, damping_factor)
     predicted = current * (1.0 + blended_returns) + bias_correction
     actual = target_prices.iloc[test_indices].to_numpy()
-    conformal = conformal_calibration(validation_actual, validation_predicted)
     naive = np.repeat(current, 3, axis=1)
     model_metrics = metrics(actual, predicted)
     baseline_metrics = metrics(actual, naive)
-    interval = conformal["95"]
-    predicted_low = predicted[:, 1] - interval["low_margin_usd"]
-    predicted_high = predicted[:, 0] + interval["high_margin_usd"]
-    coverage = float(
-        np.mean(
-            (actual[:, 2] >= predicted_low) & (actual[:, 2] <= predicted_high)
-        )
-        * 100
+    coverage = range_coverages(actual, predicted, conformal)
+    low_95, high_95 = range_bounds(predicted, conformal["95"])
+    low_99, high_99 = range_bounds(predicted, conformal["99"])
+    beats_baseline = (
+        model_metrics["mae_close_usd"] < baseline_metrics["mae_close_usd"]
     )
-    beats_baseline = model_metrics["mae_usd"] < baseline_metrics["mae_usd"]
     print(
-        f"Horizon {horizon}: rows={len(frame)} | "
-        f"MAE=${model_metrics['mae_usd']:.4f} "
-        f"(baseline ${baseline_metrics['mae_usd']:.4f}) | "
-        f"MAPE={model_metrics['mape_pct']:.2f}% | "
-        f"Accuracy={model_metrics['accuracy_pct']:.2f}% | "
-        f"Coverage95={coverage:.2f}% | beats_baseline={beats_baseline}"
+        f"Horizon {horizon} ({'hourly' if horizon == 1 else 'trading days'}): "
+        f"train={len(train_indices)} tune={len(tuning_indices)} "
+        f"calibration={len(calibration_indices)} holdout={len(test_indices)} | "
+        f"Close MAE=${model_metrics['mae_close_usd']:.4f} "
+        f"(baseline ${baseline_metrics['mae_close_usd']:.4f}) | "
+        f"MAPE={model_metrics['mape_close_pct']:.2f}% | "
+        f"Coverage95={coverage['95']:.2f}% "
+        f"Coverage99={coverage['99']:.2f}% | beats_baseline={beats_baseline}"
     )
     return {
         "catboost": model,
@@ -337,9 +466,38 @@ def train_horizon(
         "metrics": model_metrics,
         "baseline_metrics": baseline_metrics,
         "beats_baseline": beats_baseline,
-        "range_coverage_pct": coverage,
+        "range_coverage_95_pct": coverage["95"],
+        "range_coverage_99_pct": coverage["99"],
+        "range_coverage_pct": coverage["99"],
         "conformal_intervals": conformal,
         "bias_correction_usd": bias_correction,
+        "ensemble_weights": weights,
+        "damping_factor": damping_factor,
+        "audit_split": {
+            "train_end": int(train_indices[-1] + 1),
+            "validation_tuning_start": int(tuning_indices[0]),
+            "validation_tuning_end": int(tuning_indices[-1] + 1),
+            "validation_calibration_start": int(calibration_indices[0]),
+            "validation_calibration_end": int(calibration_indices[-1] + 1),
+            "holdout_start": int(test_indices[0]),
+            "holdout_end": int(test_indices[-1] + 1),
+            "embargo_rows": horizon,
+        },
+        "audit_index": frame.index,
+        "holdout_audit": {
+            "dates": frame.index[test_indices],
+            "actual_prices": actual,
+            "predicted_prices": predicted,
+            "baseline_prices": naive,
+            "range_95_low": low_95,
+            "range_95_high": high_95,
+            "range_99_low": low_99,
+            "range_99_high": high_99,
+            "metrics": model_metrics,
+            "baseline_metrics": baseline_metrics,
+            "range_coverage_95_pct": coverage["95"],
+            "range_coverage_99_pct": coverage["99"],
+        },
         "source": "hourly" if horizon == 1 else "daily",
         **extra,
     }
@@ -362,7 +520,7 @@ def main() -> None:
         {
             "version": 1,
             "models": models,
-            "created_at": pd.Timestamp.utcnow().isoformat(),
+            "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
             "horizons": (1, 7, 30),
         },
         BUNDLE_FILE,

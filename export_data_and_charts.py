@@ -5,17 +5,12 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import torch
 
 from train_price_forecaster import (
     HOURLY_FILE,
-    TARGET_COLUMNS,
-    PriceLSTM,
     daily_features,
     download_daily,
     hourly_features,
-    make_targets,
-    predict_lstm,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -23,9 +18,6 @@ BUNDLE_FILE = ROOT / "aura_price_models.pkl"
 CLEANED_FILE = ROOT / "cleaned_market_data.csv"
 DATASET_FILE = ROOT / "aura_gold_dataset.csv"
 CHART_DIR = ROOT / "charts"
-HOLDOUT_ROWS = {1: 200, 7: 100, 30: 100}
-
-
 def _clean_hourly(raw: pd.DataFrame) -> pd.DataFrame:
     data = raw.copy()
     data.index = pd.DatetimeIndex(pd.to_datetime(data.index, errors="coerce"))
@@ -92,81 +84,28 @@ def _to_export_frame(data: pd.DataFrame, frequency: str) -> pd.DataFrame:
 
 def _forecast_holdout(
     horizon: int,
-    data: pd.DataFrame,
     features: pd.DataFrame,
     bundle: dict,
 ) -> dict:
     meta = bundle["models"][horizon]
-    targets, target_prices = make_targets(data, horizon)
-    frame = features.join(targets).replace([np.inf, -np.inf], np.nan).dropna()
-    feature_frame = frame[features.columns]
-    target_prices = target_prices.loc[frame.index]
-    close = data.loc[frame.index, "Close"]
-    split = len(frame) - HOLDOUT_ROWS[horizon]
-    if split <= 30 or len(frame) - split < 1:
-        raise ValueError(f"بيانات غير كافية لتقسيم الاختبار للأفق {horizon}.")
-    train_size = split
-    validation_start = max(20, int(train_size * 0.9))
-    validation_indices = np.arange(validation_start, train_size)
-    test_indices = np.arange(split, len(frame))
-    x_test = feature_frame.iloc[test_indices][meta["features"]]
-
-    cat_return = np.asarray(meta["catboost"].predict(x_test)).reshape(-1, 3)
-    if horizon == 1:
-        lstm_return = predict_lstm(
-            _restore_lstm(meta),
-            meta["x_scaler"],
-            meta["y_scaler"],
-            feature_frame[meta["features"]],
-            test_indices,
-            meta["lstm_window"],
-        )
-        returns = 0.60 * cat_return + 0.40 * lstm_return
-    else:
-        ridge_return = meta["ridge"].predict(
-            meta["ridge_scaler"].transform(x_test)
-        )
-        returns = meta["damping_factor"] * (0.50 * ridge_return + 0.50 * cat_return)
-
-    current = close.iloc[test_indices].to_numpy()[:, None]
-    prediction = (
-        current * (1.0 + returns)
-        + np.asarray(meta.get("bias_correction_usd", np.zeros(3)))
-    )
-    actual = target_prices.iloc[test_indices].to_numpy()
-    interval = meta["conformal_intervals"]["99"]
-    low = np.minimum(
-        prediction[:, 1] - interval["low_margin_usd"],
-        prediction[:, 2] - interval["close_margin_usd"],
-    )
-    high = np.maximum(
-        prediction[:, 0] + interval["high_margin_usd"],
-        prediction[:, 2] + interval["close_margin_usd"],
-    )
-    coverage = float(np.mean((actual[:, 2] >= low) & (actual[:, 2] <= high)) * 100)
+    audit = meta["holdout_audit"]
+    frame_index = pd.DatetimeIndex(meta["audit_index"])
+    split = meta["audit_split"]
     return {
-        "dates": frame.index[test_indices],
-        "actual": actual,
-        "predicted": prediction,
-        "low_99": low,
-        "high_99": high,
-        "coverage_99": coverage,
-        "features": feature_frame,
-        "validation_start": validation_start,
+        "dates": pd.DatetimeIndex(audit["dates"]),
+        "actual": audit["actual_prices"],
+        "predicted": audit["predicted_prices"],
+        "low_99": audit["range_99_low"],
+        "high_99": audit["range_99_high"],
+        "coverage_95": audit["range_coverage_95_pct"],
+        "coverage_99": audit["range_coverage_99_pct"],
+        "metrics": audit["metrics"],
+        "baseline_metrics": audit["baseline_metrics"],
+        "features": features.reindex(frame_index),
+        "train_indices": np.arange(split["train_end"]),
+        "frame_index": frame_index,
         "split": split,
     }
-
-
-def _restore_lstm(meta: dict) -> PriceLSTM:
-    model = PriceLSTM(meta["lstm_input_size"])
-    model.load_state_dict(
-        {
-            name: torch.from_numpy(np.asarray(value))
-            for name, value in meta["lstm_state"].items()
-        }
-    )
-    model.eval()
-    return model
 
 
 def _save_csvs(hourly: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
@@ -251,19 +190,25 @@ def _plots(
 
     # 01: Chronological partitions matching the hourly model evaluation.
     meta = bundle["models"][1]
-    total = len(hourly)
-    split = total - HOLDOUT_ROWS[1]
-    validation_start = max(20, int(split * 0.9))
+    split = meta["audit_split"]
+    frame_index = evaluations[1]["frame_index"]
+    train_end = split["train_end"]
+    tuning_start = split["validation_tuning_start"]
+    tuning_end = split["validation_tuning_end"]
+    calibration_start = split["validation_calibration_start"]
+    calibration_end = split["validation_calibration_end"]
+    holdout_start = split["holdout_start"]
     fig, ax = plt.subplots(figsize=(15, 6), constrained_layout=True)
     ax.plot(hourly.index, hourly["Close"], color=gold, linewidth=1.1, label="Gold close")
-    ax.axvspan(hourly.index[0], hourly.index[validation_start], color=blue, alpha=0.11, label="Train")
-    ax.axvspan(hourly.index[validation_start], hourly.index[split], color=green, alpha=0.16, label="Validation")
-    ax.axvspan(hourly.index[split], hourly.index[-1], color=red, alpha=0.18, label="Holdout test")
-    ax.set_title("Clean hourly gold data and chronological split")
+    ax.axvspan(frame_index[0], frame_index[train_end - 1], color=blue, alpha=0.11, label="Train")
+    ax.axvspan(frame_index[tuning_start], frame_index[tuning_end - 1], color=green, alpha=0.16, label="Validation tuning")
+    ax.axvspan(frame_index[calibration_start], frame_index[calibration_end - 1], color="#a78bfa", alpha=0.16, label="Conformal calibration")
+    ax.axvspan(frame_index[holdout_start], frame_index[-1], color=red, alpha=0.18, label="Holdout test")
+    ax.set_title("Causal hourly gold data and embargoed chronological split")
     ax.set_ylabel("Gold price (USD)")
     ax.set_xlabel("Date")
     ax.grid(alpha=0.28)
-    ax.legend(ncol=4, loc="upper left", frameon=False)
+    ax.legend(ncol=3, loc="upper left", frameon=False)
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
     fig.savefig(CHART_DIR / "01_data_cleaning_overview.png", dpi=300)
@@ -280,10 +225,11 @@ def _plots(
         for name in ranking.index
     ]
     eval1 = evaluations[1]
-    hourly_features_frame = eval1["features"]
-    hourly_next_return = hourly["Close"].shift(-1).reindex(hourly_features_frame.index) / hourly[
+    train_index = eval1["frame_index"][eval1["train_indices"]]
+    hourly_features_frame = eval1["features"].loc[train_index]
+    hourly_next_return = hourly["Close"].shift(-1).reindex(train_index) / hourly[
         "Close"
-    ].reindex(hourly_features_frame.index) - 1
+    ].reindex(train_index) - 1
     correlations = []
     for name in ranking.index:
         if name in hourly_features_frame:
@@ -312,6 +258,7 @@ def _plots(
 
     # 03: Holdout forecasts and validation-calibrated 99% intervals.
     fig, ax = plt.subplots(figsize=(15, 6), constrained_layout=True)
+    horizon_names = {1: "1H session", 7: "7 trading days", 30: "30 trading days"}
     for horizon, color in ((1, gold), (7, blue), (30, green)):
         result = evaluations[horizon]
         dates = pd.DatetimeIndex(result["dates"])
@@ -324,14 +271,20 @@ def _plots(
                 alpha=0.7,
                 label="Actual close",
             )
-        ax.plot(dates, result["predicted"][:, 2], color=color, linewidth=1.5, label=f"{horizon}-day predicted")
+        ax.plot(
+            dates,
+            result["predicted"][:, 2],
+            color=color,
+            linewidth=1.5,
+            label=f"{horizon_names[horizon]} predicted",
+        )
         ax.fill_between(
             dates,
             result["low_99"],
             result["high_99"],
             color=color,
             alpha=0.09,
-            label=f"{horizon}-day 99% interval",
+            label=f"{horizon_names[horizon]} 99% interval",
         )
     ax.set_title("Actual vs predicted gold close with 99% calibrated intervals")
     ax.set_ylabel("Gold price (USD)")
@@ -343,19 +296,21 @@ def _plots(
     fig.savefig(CHART_DIR / "03_actual_vs_predicted_99ci.png", dpi=300)
     plt.close(fig)
 
-    # 04: Stored holdout MAE versus naive baseline.
+    # 04: Close-only holdout MAE versus naive baseline.
     horizons = (1, 7, 30)
     x = np.arange(len(horizons))
     width = 0.34
-    model_mae = [bundle["models"][h]["metrics"]["mae_usd"] for h in horizons]
-    baseline_mae = [bundle["models"][h]["baseline_metrics"]["mae_usd"] for h in horizons]
+    model_mae = [evaluations[h]["metrics"]["mae_close_usd"] for h in horizons]
+    baseline_mae = [
+        evaluations[h]["baseline_metrics"]["mae_close_usd"] for h in horizons
+    ]
     fig, ax = plt.subplots(figsize=(10, 6), constrained_layout=True)
     ax.bar(x - width / 2, model_mae, width, label="Model MAE", color=blue)
     ax.bar(x + width / 2, baseline_mae, width, label="Naive baseline MAE", color="#64748b")
-    ax.set_xticks(x, labels=[str(h) for h in horizons])
-    ax.set_xlabel("Forecast horizon (days)")
-    ax.set_ylabel("MAE (USD; lower is better)")
-    ax.set_title("Holdout error benchmark")
+    ax.set_xticks(x, labels=["1H", "7 trading days", "30 trading days"])
+    ax.set_xlabel("Forecast horizon")
+    ax.set_ylabel("Close MAE (USD; lower is better)")
+    ax.set_title("Holdout close-price error benchmark")
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
     for i, (model_error, baseline_error) in enumerate(zip(model_mae, baseline_mae)):
@@ -386,17 +341,22 @@ def main() -> None:
     summary_rows = []
     for horizon, data in ((1, hourly_model), (7, daily), (30, daily)):
         features = hourly_features(data) if horizon == 1 else daily_features(data)
-        result = _forecast_holdout(horizon, data, features, bundle)
+        result = _forecast_holdout(horizon, features, bundle)
         evaluations[horizon] = result
-        meta = bundle["models"][horizon]
         summary_rows.append(
             {
                 "Horizon": horizon,
-                "MAE_USD": meta["metrics"]["mae_usd"],
-                "Baseline_MAE_USD": meta["baseline_metrics"]["mae_usd"],
-                "Price_Accuracy_Pct": meta["metrics"]["accuracy_pct"],
+                "High_MAE_USD": result["metrics"]["mae_high_usd"],
+                "Low_MAE_USD": result["metrics"]["mae_low_usd"],
+                "Close_MAE_USD": result["metrics"]["mae_close_usd"],
+                "Baseline_Close_MAE_USD": result["baseline_metrics"]["mae_close_usd"],
+                "MAPE_Close_Pct": result["metrics"]["mape_close_pct"],
+                "Range_Coverage_95_Pct": result["coverage_95"],
                 "Range_Coverage_99_Pct": result["coverage_99"],
-                "Beats_Baseline": meta["metrics"]["mae_usd"] < meta["baseline_metrics"]["mae_usd"],
+                "Beats_Baseline": (
+                    result["metrics"]["mae_close_usd"]
+                    < result["baseline_metrics"]["mae_close_usd"]
+                ),
             }
         )
     print("\nFinal training and audit summary:")
