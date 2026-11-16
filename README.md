@@ -15,9 +15,9 @@ Live prices are fetched from Yahoo Finance (`GC=F`) when a prediction is request
 ## Deploy to Hugging Face Spaces
 
 1. Create a new Hugging Face Space and choose **Docker** as the SDK.
-2. Upload the project files, including `Dockerfile`, `requirements-space.txt`,
-   `main.py`, `gold_engine.py`, `index.html`, `gold_bundle.pkl`, `icon.png`,
-   and `archive/XAU_1d_data.csv`.
+2. The Docker image installs `requirements-space.txt` and copies the runtime
+   files `app.py`, `main.py`, `aura_price_engine.py`, `price_features.py`,
+   `index.html`, `icon.png`, and `aura_price_models.pkl`.
 3. Do not upload `.venv`, credentials, or the old standalone model files.
 4. Wait for the Space to finish building, then open its public URL.
 
@@ -28,8 +28,10 @@ depend on the laptop's `127.0.0.1`.
 ## Deploy to Render
 
 1. In Render, choose **New +** → **Blueprint** and select this GitHub repository.
-2. Render reads `render.yaml`, builds the included `Dockerfile`, and exposes the
-   web service on Render's assigned `PORT`.
+2. Render reads `render.yaml`, builds the included `Dockerfile`, starts
+   `app:app`, and exposes the web service on Render's assigned `PORT`. The
+   compatibility entry point in `app.py` imports the FastAPI app from `main.py`;
+   `/` serves the co-located `index.html`.
 3. Use the generated `onrender.com` URL. Do not open `index.html` from the laptop;
    the dashboard uses the same public URL for `/predict`.
 4. Render's health check is `/health`. It reports the market as closed during the

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """FastAPI server for local use and Hugging Face Spaces."""
 import logging
+import os
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -13,6 +14,8 @@ import aura_price_engine as pe
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Aura Gold AI")
+API_VERSION = "price-forecast-v2"
+DEPLOYMENT_REVISION = os.getenv("RENDER_GIT_COMMIT", "unknown")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Gold trading hours used by the app (Iraq time, UTC+3):
@@ -34,7 +37,10 @@ def is_market_open(now: datetime | None = None) -> bool:
 
 @app.get("/")
 def home():
-    return FileResponse(BASE_DIR / "index.html")
+    return FileResponse(
+        BASE_DIR / "index.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/icon.png")
@@ -45,9 +51,30 @@ def icon():
 
 @app.get("/health")
 def health():
+    try:
+        bundle = pe.load_bundle()
+        models_ready = all(
+            horizon in bundle.get("models", {}) for horizon in (1, 7, 30)
+        )
+        if not models_ready:
+            raise pe.PriceEngineError("حزمة النماذج لا تحتوي نماذج الآفاق 1 و7 و30.")
+    except Exception as e:
+        logger.exception("Model bundle readiness check failed")
+        return JSONResponse(
+            {
+                "status": "error",
+                "api_version": API_VERSION,
+                "revision": DEPLOYMENT_REVISION,
+                "models_ready": False,
+                "detail": str(e),
+            },
+            status_code=503,
+        )
     return {
         "status": "ok",
-        "models_ready": pe.BUNDLE_PATH.exists(),
+        "api_version": API_VERSION,
+        "revision": DEPLOYMENT_REVISION,
+        "models_ready": True,
         "live_market": is_market_open(),
     }
 
@@ -72,16 +99,20 @@ def live_price():
 
 @app.get("/predict")
 def predict(horizon: int = 1):
+    if horizon not in (1, 7, 30):
+        raise HTTPException(
+            status_code=422,
+            detail="الأفق المدعوم هو 1 أو 7 أو 30.",
+        )
     try:
         market_open = is_market_open()
         result = pe.predict(horizon)
         result["market_open"] = market_open
+        result["api_version"] = API_VERSION
+        result["revision"] = DEPLOYMENT_REVISION
         return result
     except pe.PriceEngineError as e:
-        return {"status": "error", "message": str(e)}
-    except Exception:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except Exception as e:
         logger.exception("Unexpected prediction failure")
-        return {
-            "status": "error",
-            "message": "تعذر تنفيذ التوقع حالياً. حاول مرة أخرى لاحقاً.",
-        }
+        raise HTTPException(status_code=500, detail=str(e)) from e

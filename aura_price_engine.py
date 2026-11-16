@@ -36,7 +36,17 @@ def load_bundle() -> dict:
     mtime = BUNDLE_PATH.stat().st_mtime
     with _lock:
         if _bundle_cache["mtime"] != mtime:
-            _bundle_cache["bundle"] = joblib.load(BUNDLE_PATH)
+            try:
+                bundle = joblib.load(BUNDLE_PATH)
+            except Exception as exc:
+                raise PriceEngineError(
+                    f"تعذر تحميل حزمة النماذج {BUNDLE_PATH.name}: {exc}"
+                ) from exc
+            if not isinstance(bundle, dict) or not isinstance(bundle.get("models"), dict):
+                raise PriceEngineError(
+                    f"صيغة حزمة النماذج غير صالحة: {BUNDLE_PATH.name}."
+                )
+            _bundle_cache["bundle"] = bundle
             _bundle_cache["mtime"] = mtime
         return _bundle_cache["bundle"]  # type: ignore[return-value]
 

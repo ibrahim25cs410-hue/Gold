@@ -16,5 +16,8 @@ secrets*
 archive (1)
 run_app.bat
 index-1.html
+gold_engine.py
+gold_model.pkl
+gold_bundle.pkl
 gold_clf_model.pkl
 gold_reg_model.pkl
