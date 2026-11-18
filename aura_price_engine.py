@@ -13,20 +13,12 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from build_dataset import (
-    add_relative_features,
-    add_technical_features,
-    download_daily_indicators,
-    download_ticker,
-)
+from build_dataset import download_daily, download_hourly
 from price_features import (
-    blend_returns,
-    daily_features,
-    flatten,
-    hourly_features,
+    BUNDLE_VERSION, blend_returns, daily_features, flatten, gold_target_prices,
+    hourly_features, range_bounds, realized_volatility, residual_feedback,
     sequence_window,
 )
-
 
 ROOT = Path(__file__).resolve().parent
 BUNDLE_PATH = ROOT / "aura_price_models.pkl"
@@ -87,74 +79,24 @@ def load_bundle() -> dict:
                 raise PriceEngineError(
                     f"تعذر تحميل حزمة النماذج {BUNDLE_PATH.name}: {exc}"
                 ) from exc
-            if not isinstance(bundle, dict) or not isinstance(bundle.get("models"), dict):
+            if (
+                not isinstance(bundle, dict) or bundle.get("version") != BUNDLE_VERSION
+                or not isinstance(bundle.get("models"), dict)
+            ):
                 raise PriceEngineError(
-                    f"صيغة حزمة النماذج غير صالحة: {BUNDLE_PATH.name}."
+                    f"Incompatible bundle {BUNDLE_PATH.name}. Run train_price_forecaster.py."
                 )
             _bundle_cache["bundle"] = bundle
             _bundle_cache["mtime"] = mtime
         return _bundle_cache["bundle"]  # type: ignore[return-value]
 
 
-def _fetch_live_hourly() -> pd.DataFrame:
-    gold = download_ticker("GC=F", ["Open", "High", "Low", "Close", "Volume"])
-    oil = download_ticker("CL=F", ["Close"]).rename(columns={"Close": "Oil_Close"})
-    treasury = download_ticker("^TNX", ["Close"]).rename(
-        columns={"Close": "US10Y_Yield"}
-    )
-    dollar = download_ticker("DX-Y.NYB", ["Close"]).rename(columns={"Close": "DXY"})
-    data = gold.join([oil, treasury, dollar], how="left")
-    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
-    data = add_relative_features(add_technical_features(data))
-    for lag in (1, 2, 3, 5, 10, 20):
-        data[f"Close_Lag_{lag}"] = data["Close"].shift(lag)
-        data[f"Oil_Lag_{lag}"] = data["Oil_Close"].shift(lag)
-        data[f"US10Y_Lag_{lag}"] = data["US10Y_Yield"].shift(lag)
-        data[f"DXY_Lag_{lag}"] = data["DXY"].shift(lag)
-    return data.replace([np.inf, -np.inf], np.nan).dropna()
-
-
 def _download_live_hourly() -> pd.DataFrame:
-    return _cached_value(
-        "market_hourly", MARKET_DATA_TTL_SECONDS, _fetch_live_hourly
-    )
-
-
-def _fetch_live_daily() -> pd.DataFrame:
-    frames = []
-    for name, ticker in {
-        "Gold": "GC=F",
-        "Oil": "CL=F",
-        "US10Y": "^TNX",
-        "DXY": "DX-Y.NYB",
-    }.items():
-        raw = flatten(
-            yf.download(
-                ticker,
-                period="5y",
-                interval="1d",
-                auto_adjust=False,
-                progress=False,
-                threads=False,
-            )
-        )
-        if raw.empty:
-            raise PriceEngineError(f"تعذر جلب بيانات {ticker}.")
-        raw.index = pd.DatetimeIndex(pd.to_datetime(raw.index)).tz_localize(None)
-        if name == "Gold":
-            part = raw[["Open", "High", "Low", "Close", "Volume"]].rename(
-                columns={"High": "Gold_High", "Low": "Gold_Low"}
-            )
-        else:
-            part = raw[["Close"]].rename(columns={"Close": f"{name}_Close"})
-        frames.append(part)
-    data = frames[0].join(frames[1:], how="left").sort_index()
-    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
-    return data
+    return _cached_value("market_hourly", MARKET_DATA_TTL_SECONDS, download_hourly)
 
 
 def _download_live_daily() -> pd.DataFrame:
-    return _cached_value("market_daily", MARKET_DATA_TTL_SECONDS, _fetch_live_daily)
+    return _cached_value("market_daily", MARKET_DATA_TTL_SECONDS, download_daily)
 
 
 def _fetch_live_quote() -> dict:
@@ -224,22 +166,59 @@ def _lstm_layer(sequence: np.ndarray, state: dict, layer: int) -> np.ndarray:
     return output
 
 
-def _predict_lstm(meta: dict, features: pd.DataFrame) -> np.ndarray:
-    selected = features[meta["features"]]
-    scaled = meta["x_scaler"].transform(selected)
+def _predict_lstm(
+    meta: dict, features: pd.DataFrame, prediction_rows: np.ndarray,
+) -> np.ndarray:
     window = meta["lstm_window"]
-    if len(scaled) < window:
-        raise PriceEngineError("بيانات السوق الحية غير كافية لتشغيل LSTM.")
-    sequence = sequence_window(scaled, len(scaled) - 1, window).astype(
-        np.float32, copy=False
-    )
+    context_start = int(prediction_rows[0]) - window + 1
+    scaled = meta["x_scaler"].transform(features.iloc[context_start:]).astype(np.float32)
     state = meta["lstm_state"]
-    first_layer = _lstm_layer(sequence, state, 0)
-    second_layer = _lstm_layer(first_layer, state, 1)
     output_weight = np.asarray(state["output.weight"], dtype=np.float32)
     output_bias = np.asarray(state["output.bias"], dtype=np.float32)
-    scaled_prediction = (output_weight @ second_layer[-1] + output_bias)[None, :]
-    return meta["y_scaler"].inverse_transform(scaled_prediction)[0]
+    predictions = []
+    for row in prediction_rows:
+        sequence = sequence_window(scaled, int(row) - context_start, window)
+        first_layer = _lstm_layer(sequence, state, 0)
+        second_layer = _lstm_layer(first_layer, state, 1)
+        predictions.append(output_weight @ second_layer[-1] + output_bias)
+    return meta["y_scaler"].inverse_transform(np.asarray(predictions))
+
+
+def _forecast(meta: dict, data: pd.DataFrame, horizon: int) -> tuple[float, float]:
+    features = hourly_features(data) if horizon == 1 else daily_features(data)
+    features = features[meta["features"]].ffill()
+    vol = realized_volatility(data["Close"], horizon)
+    ready = features.notna().all(axis=1) & vol.notna()
+    if features.empty or not ready.iloc[-1]:
+        raise PriceEngineError("Market history is too short for the forecast.")
+    last = len(data) - 1
+    first_ready = ready.to_numpy().argmax()
+    first_origin = first_ready + meta.get("lstm_window", 1) - 1
+    if last < first_origin:
+        raise PriceEngineError("Market history is too short for the forecast sequence.")
+    window = meta["residual_window"]
+    feedback_start = max(first_origin, last - horizon - window + 1)
+    completed = np.arange(feedback_start, last - horizon + 1, dtype=int)
+    dates = data.index[completed]
+    completed = completed[(dates >= meta["feedback_start"]) & ~dates.isin(meta["feedback_embargo"])]
+    rows = np.append(completed, last)
+    selected = features.iloc[rows]
+    cat = meta["catboost"].predict(selected, thread_count=2)
+    if horizon == 1:
+        secondary = _predict_lstm(meta, features, rows)
+    else:
+        secondary = meta["ridge"].predict(meta["ridge_scaler"].transform(selected))
+    base = blend_returns(cat, secondary, meta["ensemble_weights"], meta["damping_factor"])
+    close = data["Close"].to_numpy()
+    dollar_vol = close * vol.to_numpy()
+    trailing = min(len(data), horizon + window)
+    residuals = np.full((trailing, 3), np.nan)
+    offset = len(data) - trailing
+    actual = gold_target_prices(data, horizon).iloc[completed].to_numpy()
+    residuals[completed - offset] = (actual - close[completed, None]) / dollar_vol[completed, None] - base[:-1]
+    correction = residual_feedback(residuals, horizon, window, meta["residual_gain"])[-1]
+    close_forecast = close[last] + dollar_vol[last] * (base[-1, 2] + correction[2])
+    return float(close_forecast), float(dollar_vol[last])
 
 
 def predict(horizon: int) -> dict:
@@ -248,75 +227,42 @@ def predict(horizon: int) -> dict:
     if horizon not in bundle["models"]:
         raise PriceEngineError("الأفق المدعوم هو 1 أو 7 أو 30.")
     meta = bundle["models"][horizon]
-    data = _download_live_hourly() if horizon == 1 else _download_live_daily()
-    features = hourly_features(data) if horizon == 1 else daily_features(data)
-    features = features.replace([np.inf, -np.inf], np.nan).ffill().dropna()
-    if any(column not in features for column in meta["features"]):
-        missing = [c for c in meta["features"] if c not in features]
-        raise PriceEngineError("ميزات التوقع ناقصة: " + ", ".join(missing[:5]))
-    x = features[meta["features"]].iloc[[-1]]
-    cat_return = np.asarray(meta["catboost"].predict(x)).reshape(-1)
-    if horizon == 1:
-        secondary_return = _predict_lstm(meta, features)
-    else:
-        secondary_return = meta["ridge"].predict(
-            meta["ridge_scaler"].transform(x)
-        ).reshape(-1)
-    returns = blend_returns(
-        cat_return,
-        secondary_return,
-        meta["ensemble_weights"],
-        meta["damping_factor"],
-    )
+    try:
+        data = _download_live_hourly() if horizon == 1 else _download_live_daily()
+    except RuntimeError as exc:
+        raise PriceEngineError(str(exc)) from exc
+    predicted, dollar_vol = _forecast(meta, data, horizon)
     current = float(data["Close"].iloc[-1])
-    prices = current * (1.0 + returns) + np.asarray(
-        meta.get("bias_correction_usd", np.zeros(3))
-    )
+    low_80, high_80 = range_bounds(predicted, dollar_vol, meta["conformal_intervals"]["80"])
+    low_95, high_95 = range_bounds(predicted, dollar_vol, meta["conformal_intervals"]["95"])
     metrics = meta["metrics"]
-    interval = meta["conformal_intervals"]["99"]
-    predicted_low = min(
-        float(prices[1]) - interval["low_margin_usd"],
-        float(prices[2]) - interval["close_margin_usd"],
-    )
-    predicted_high = max(
-        float(prices[0]) + interval["high_margin_usd"],
-        float(prices[2]) + interval["close_margin_usd"],
-    )
+    skill = meta["skill_score_pct"]
     return {
         "status": "ok",
         "horizon": horizon,
         "current_price": round(current, 2),
-        "predicted_price": round(float(prices[2]), 2),
-        "predicted_high": round(predicted_high, 2),
-        "predicted_low": round(predicted_low, 2),
-        "volatility_usd": round(float(abs(predicted_high - predicted_low) / 2), 2),
+        "predicted_price": round(predicted, 2),
+        "predicted_low_80": round(low_80, 2),
+        "predicted_high_80": round(high_80, 2),
+        "predicted_low": round(low_95, 2),
+        "predicted_high": round(high_95, 2),
+        "volatility_usd": round(dollar_vol, 2),
         "drivers": {
             "dollar": round(float(data["DXY" if horizon == 1 else "DXY_Close"].iloc[-1]), 4),
-            "treasury_10y": round(
-                float(
-                    data["US10Y_Yield" if horizon == 1 else "US10Y_Close"].iloc[-1]
-                ),
-                4,
-            ),
-            "oil": round(
-                float(data["Oil_Close"].iloc[-1]),
-                4,
-            ),
+            "treasury_10y": round(float(data["US10Y_Yield" if horizon == 1 else "US10Y_Close"].iloc[-1]), 4),
+            "oil": round(float(data["Oil_Close"].iloc[-1]), 4),
         },
-        "model_accuracy_pct": round(float(metrics["accuracy_pct"]), 4),
-        "range_coverage_95_pct": round(float(meta["range_coverage_95_pct"]), 4),
-        "range_coverage_99_pct": round(float(meta["range_coverage_99_pct"]), 4),
-        "range_coverage_pct": round(float(meta["range_coverage_99_pct"]), 4),
-        "mae_close_usd": round(float(metrics["mae_close_usd"]), 4),
-        "mae_high_usd": round(float(metrics["mae_high_usd"]), 4),
-        "mae_low_usd": round(float(metrics["mae_low_usd"]), 4),
-        "mape_close_pct": round(float(metrics["mape_close_pct"]), 4),
-        "baseline_mae_close_usd": round(
-            float(meta["baseline_metrics"]["mae_close_usd"]), 4
-        ),
-        "mae_usd": round(float(metrics["mae_usd"]), 4),
-        "baseline_mae_usd": round(float(meta["baseline_metrics"]["mae_usd"]), 4),
+        "mae_close_usd": round(metrics["mae_close_usd"], 4),
+        "mae_high_usd": round(metrics["mae_high_usd"], 4),
+        "mae_low_usd": round(metrics["mae_low_usd"], 4),
+        "mape_close_pct": round(metrics["mape_close_pct"], 4),
+        "baseline_mae_close_usd": round(meta["baseline_metrics"]["mae_close_usd"], 4),
+        "mae_usd": round(metrics["mae_usd"], 4),
+        "baseline_mae_usd": round(meta["baseline_metrics"]["mae_usd"], 4),
+        "skill_score_pct": round(skill, 4) if skill is not None else None,
         "beats_baseline": bool(meta["beats_baseline"]),
+        "range_coverage_80_pct": round(meta["range_coverage_80_pct"], 4),
+        "range_coverage_95_pct": round(meta["range_coverage_95_pct"], 4),
         "as_of": data.index[-1].strftime("%Y-%m-%d %H:%M"),
     }
 

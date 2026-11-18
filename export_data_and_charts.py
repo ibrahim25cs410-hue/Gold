@@ -6,19 +6,15 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from train_price_forecaster import (
-    HOURLY_FILE,
-    daily_features,
-    download_daily,
-    hourly_features,
-)
-from price_features import RISK_FEATURE_COLUMNS
+from train_price_forecaster import BUNDLE_FILE, print_holdout, read_snapshots
+from price_features import BUNDLE_VERSION, ECONOMIC_FEATURES, daily_features, hourly_features
 
 ROOT = Path(__file__).resolve().parent
-BUNDLE_FILE = ROOT / "aura_price_models.pkl"
 CLEANED_FILE = ROOT / "cleaned_market_data.csv"
 DATASET_FILE = ROOT / "aura_gold_dataset.csv"
 CHART_DIR = ROOT / "charts"
+
+
 def _clean_hourly(raw: pd.DataFrame) -> pd.DataFrame:
     data = raw.copy()
     data.index = pd.DatetimeIndex(pd.to_datetime(data.index, errors="coerce"))
@@ -29,7 +25,7 @@ def _clean_hourly(raw: pd.DataFrame) -> pd.DataFrame:
     data = data.loc[~data.index.duplicated(keep="last")].sort_index()
     columns = [
         "Open", "High", "Low", "Close", "Volume", "Oil_Close",
-        "US10Y_Yield", "DXY", "GVZ_Close", "VIX_Close",
+        "US10Y_Yield", "DXY", "GVZ_Close", "VIX_Close", "TIP_Close",
     ]
     missing = [column for column in columns if column not in data]
     if missing:
@@ -60,6 +56,7 @@ def _normalize_daily(raw: pd.DataFrame) -> pd.DataFrame:
         "DXY_Close",
         "GVZ_Close",
         "VIX_Close",
+        "TIP_Close",
     ]
     missing = [column for column in columns if column not in data]
     if missing:
@@ -98,15 +95,15 @@ def _forecast_holdout(
     frame_index = pd.DatetimeIndex(meta["audit_index"])
     split = meta["audit_split"]
     return {
-        "dates": pd.DatetimeIndex(audit["dates"]),
+        "dates": pd.DatetimeIndex(audit["target_dates"]),
         "actual": audit["actual_prices"],
         "predicted": audit["predicted_prices"],
-        "low_99": audit["range_99_low"],
-        "high_99": audit["range_99_high"],
-        "coverage_95": audit["range_coverage_95_pct"],
-        "coverage_99": audit["range_coverage_99_pct"],
-        "metrics": audit["metrics"],
-        "baseline_metrics": audit["baseline_metrics"],
+        "low_80": audit["range_80_low"],
+        "high_80": audit["range_80_high"],
+        "low_95": audit["range_95_low"],
+        "high_95": audit["range_95_high"],
+        "metrics": meta["metrics"],
+        "baseline_metrics": meta["baseline_metrics"],
         "features": features.reindex(frame_index),
         "train_indices": np.arange(split["train_end"]),
         "frame_index": frame_index,
@@ -134,16 +131,10 @@ def _save_feature_dataset(
 ) -> pd.DataFrame:
     hourly_feature_data = hourly_features(hourly)
     daily_feature_data = daily_features(daily)
-    hourly_joined = pd.concat(
-        [hourly, hourly_feature_data.drop(columns=hourly.columns, errors="ignore")],
-        axis=1,
-    )
-    daily_joined = pd.concat(
-        [daily, daily_feature_data.drop(columns=daily.columns, errors="ignore")],
-        axis=1,
-    )
+    hourly_joined = hourly.drop(columns=hourly_feature_data.columns, errors="ignore").join(hourly_feature_data)
+    daily_joined = daily.drop(columns=daily_feature_data.columns, errors="ignore").join(daily_feature_data)
     hourly_joined = hourly_joined.drop(
-        columns=[c for c in hourly_joined if c.startswith("Target_")],
+        columns=[c for c in hourly_joined if c.startswith("Target_") or c == "Direction_Label"],
         errors="ignore",
     )
     daily_joined = daily_joined.drop(
@@ -227,7 +218,7 @@ def _plots(
     selected = list(all_importance.head(12).index)
     selected.extend(
         name
-        for name in RISK_FEATURE_COLUMNS
+        for name in ECONOMIC_FEATURES
         if name in all_importance.index and name not in selected
     )
     ranking = all_importance.loc[selected]
@@ -247,7 +238,7 @@ def _plots(
     correlations = []
     for name in ranking.index:
         if name in hourly_features_frame:
-            correlations.append(hourly_features_frame[name].corr(hourly_next_return))
+            correlations.append(hourly_features_frame[name].corr(hourly_next_return) if hourly_features_frame[name].nunique() > 1 else 0.0)
         else:
             correlations.append(np.nan)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8), gridspec_kw={"width_ratios": [1.35, 1]}, constrained_layout=True)
@@ -255,7 +246,7 @@ def _plots(
     ax1.barh(y, ranking.values, color=colors, alpha=0.9)
     ax1.set_yticks(y, labels=ranking.index)
     ax1.invert_yaxis()
-    ax1.set_title("Leading importances plus all GVZ/VIX risk features")
+    ax1.set_title("Leading CatBoost features and economic signals")
     ax1.set_xlabel("Relative importance")
     ax1.grid(axis="x", alpha=0.25)
     corr = np.nan_to_num(np.asarray(correlations, dtype=float), nan=0.0)
@@ -270,44 +261,25 @@ def _plots(
     fig.savefig(CHART_DIR / "02_feature_importance.png", dpi=300)
     plt.close(fig)
 
-    # 03: Holdout forecasts and validation-calibrated 99% intervals.
-    fig, ax = plt.subplots(figsize=(15, 6), constrained_layout=True)
-    horizon_names = {1: "1H session", 7: "7 trading days", 30: "30 trading days"}
-    for horizon, color in ((1, gold), (7, blue), (30, green)):
+    # Align realized closes and forecasts by target date, with a panel per horizon.
+    fig, axes = plt.subplots(3, 1, figsize=(13, 10), constrained_layout=True)
+    for ax, horizon, label in zip(axes, (1, 7, 30), ("1H", "7 trading days", "30 trading days")):
         result = evaluations[horizon]
-        dates = pd.DatetimeIndex(result["dates"])
-        if horizon == 30:
-            ax.plot(
-                dates,
-                result["actual"][:, 2],
-                color="#f8fafc",
-                linewidth=1.2,
-                alpha=0.7,
-                label="Actual close",
-            )
-        ax.plot(
-            dates,
-            result["predicted"][:, 2],
-            color=color,
-            linewidth=1.5,
-            label=f"{horizon_names[horizon]} predicted",
-        )
-        ax.fill_between(
-            dates,
-            result["low_99"],
-            result["high_99"],
-            color=color,
-            alpha=0.09,
-            label=f"{horizon_names[horizon]} 99% interval",
-        )
-    ax.set_title("Actual vs predicted gold close with 99% calibrated intervals")
-    ax.set_ylabel("Gold price (USD)")
-    ax.set_xlabel("Holdout date")
-    ax.grid(alpha=0.28)
-    ax.legend(ncol=3, loc="upper left", frameon=False)
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-    fig.savefig(CHART_DIR / "03_actual_vs_predicted_99ci.png", dpi=300)
+        dates = result["dates"]
+        ax.fill_between(dates, result["low_95"], result["high_95"],
+                        color=blue, alpha=0.16, label="95% risk interval")
+        ax.fill_between(dates, result["low_80"], result["high_80"],
+                        color=blue, alpha=0.30, label="80% likely interval")
+        ax.plot(dates, result["actual"][:, 2], color="#f8fafc", linewidth=1, label="Actual close")
+        ax.plot(dates, result["predicted"][:, 2], color=gold, linewidth=1.2, label="Forecast close")
+        ax.set_title(f"{label} holdout close forecasts")
+        ax.set_ylabel("Gold close (USD)")
+        ax.set_xlabel("Target date")
+        ax.grid(alpha=0.28)
+        ax.legend(ncol=4, loc="upper left", frameon=False)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+    fig.savefig(CHART_DIR / "03_holdout_prediction_intervals.png", dpi=300)
     plt.close(fig)
 
     # 04: Close-only holdout MAE versus naive baseline.
@@ -335,59 +307,25 @@ def _plots(
 
 
 def main() -> None:
-    if not HOURLY_FILE.exists() or not BUNDLE_FILE.exists():
-        raise FileNotFoundError("gold_full_dataset.csv و aura_price_models.pkl مطلوبان.")
     bundle = joblib.load(BUNDLE_FILE)
-    hourly_raw = pd.read_csv(HOURLY_FILE, parse_dates=["Date"]).set_index("Date")
-    daily_raw = download_daily()
-    hourly = _clean_hourly(hourly_raw)
-    daily = _normalize_daily(daily_raw)
-    hourly_model = hourly_raw.loc[hourly.index].copy()
+    hourly_raw, daily_raw, digests = read_snapshots()
+    if bundle.get("version") != BUNDLE_VERSION or bundle.get("dataset_sha256") != digests:
+        raise ValueError("Market snapshots do not match the trained bundle. Retrain before exporting.")
+    hourly, daily = _clean_hourly(hourly_raw), _normalize_daily(daily_raw)
     print(
-        "Cleaning row counts:"
-        f" hourly before={len(hourly_raw):,}, after={len(hourly):,};"
-        f" daily before={len(daily_raw):,}, after={len(daily):,}."
+        f"Cleaning row counts: hourly {len(hourly_raw):,} to {len(hourly):,}; "
+        f"daily {len(daily_raw):,} to {len(daily):,}."
     )
     _save_csvs(hourly, daily)
-    _save_feature_dataset(hourly_model, daily)
-
-    evaluations = {}
-    summary_rows = []
-    for horizon, data in ((1, hourly_model), (7, daily), (30, daily)):
-        features = hourly_features(data) if horizon == 1 else daily_features(data)
-        result = _forecast_holdout(horizon, features, bundle)
-        evaluations[horizon] = result
-        summary_rows.append(
-            {
-                "Horizon": horizon,
-                "High_MAE_USD": result["metrics"]["mae_high_usd"],
-                "Low_MAE_USD": result["metrics"]["mae_low_usd"],
-                "Close_MAE_USD": result["metrics"]["mae_close_usd"],
-                "Baseline_Close_MAE_USD": result["baseline_metrics"]["mae_close_usd"],
-                "MAPE_Close_Pct": result["metrics"]["mape_close_pct"],
-                "Range_Coverage_95_Pct": result["coverage_95"],
-                "Range_Coverage_99_Pct": result["coverage_99"],
-                "Beats_Baseline": (
-                    result["metrics"]["mae_close_usd"]
-                    < result["baseline_metrics"]["mae_close_usd"]
-                ),
-            }
-        )
-    print("\nFinal training and audit summary:")
-    print(pd.DataFrame(summary_rows).to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+    _save_feature_dataset(hourly_raw, daily_raw)
+    hourly_x, daily_x = hourly_features(hourly_raw).ffill(), daily_features(daily_raw).ffill()
+    evaluations = {
+        horizon: _forecast_holdout(horizon, hourly_x if horizon == 1 else daily_x, bundle)
+        for horizon in (1, 7, 30)
+    }
+    print_holdout(bundle["models"])
     _plots(hourly, bundle, evaluations)
-    expected = [
-        "01_data_cleaning_overview.png",
-        "02_feature_importance.png",
-        "03_actual_vs_predicted_99ci.png",
-        "04_horizon_accuracy_benchmark.png",
-    ]
-    missing = [name for name in expected if not (CHART_DIR / name).is_file()]
-    if missing:
-        raise RuntimeError(f"لم تُحفظ المخططات المطلوبة: {missing}")
-    print(f"\nتم حفظ الملفين و4 مخططات بدقة 300 DPI في {CHART_DIR}.")
-    for name in expected:
-        print(f"[OK] {name} ({(CHART_DIR / name).stat().st_size:,} bytes)")
+    print(f"Saved both CSV exports and four 300-DPI charts to {CHART_DIR}.")
 
 
 if __name__ == "__main__":

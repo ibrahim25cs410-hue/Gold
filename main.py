@@ -14,7 +14,7 @@ import aura_price_engine as pe
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Aura Gold AI")
-API_VERSION = "price-forecast-v2"
+API_VERSION = "price-forecast-v3"
 DEPLOYMENT_REVISION = os.getenv("RENDER_GIT_COMMIT", "unknown")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 

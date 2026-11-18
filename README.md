@@ -16,7 +16,7 @@ Live prices are fetched from Yahoo Finance (`GC=F`) when a prediction is request
 
 1. Create a new Hugging Face Space and choose **Docker** as the SDK.
 2. The Docker image installs `requirements-space.txt` and copies the runtime
-   files `app.py`, `main.py`, `aura_price_engine.py`, `price_features.py`,
+   files `app.py`, `main.py`, `aura_price_engine.py`, `build_dataset.py`, `price_features.py`,
    `index.html`, `icon.png`, and `aura_price_models.pkl`.
 3. Do not upload `.venv`, credentials, or the old standalone model files.
 4. Wait for the Space to finish building, then open its public URL.
@@ -50,6 +50,7 @@ C:\Gold/
 ├── aura_price_engine.py
 ├── price_features.py
 ├── gold_full_dataset.csv
+├── gold_daily_dataset.csv
 ├── aura_price_models.pkl
 └── charts/
 ```
@@ -65,70 +66,85 @@ Use the project virtual environment on Windows:
 Create `.venv` first if it does not exist. The training job also requires the
 local PyTorch training dependency; it is not imported by the serving API.
 
-## 2) Build the hourly dataset
+## 2) Build the market snapshots
 
 ```powershell
 .\.venv\Scripts\python.exe .\build_dataset.py
 ```
 
-The script fetches hourly gold, oil, Treasury-yield, and dollar data, plus the
-daily gold-volatility (`^GVZ`) and VIX (`^VIX`) closes, from Yahoo Finance and
-writes `gold_full_dataset.csv`. Each daily risk-index close is lagged by one
-observation before it is forward-filled onto the hourly timestamps, so a
-same-day close cannot leak into earlier hourly bars.
+The builder and the live engine share ingestion for Yahoo Finance. Gold futures
+(GC=F) supply completed hourly and daily candles. Crude oil (CL=F), Treasury
+yield (^TNX), dollar index (DX-Y.NYB), gold implied volatility (^GVZ), equity
+implied volatility (^VIX), and the iShares TIPS Bond ETF (TIP) supply daily
+closes. Rolling macro signals use each symbol's own trading sessions. The
+alignment shifts daily values by one calendar day before forward-filling, so a
+Friday close first becomes eligible on Saturday and can carry through a market
+closure. Hourly alignment uses UTC candle starts. The builder saves two years
+of hourly history in gold_full_dataset.csv and five years of daily history in
+gold_daily_dataset.csv.
 
-## 3) Train the price forecaster
+## 3) Train the volatility-normalized forecasts
 
-```bash
+```powershell
 .\.venv\Scripts\python.exe .\train_price_forecaster.py
 ```
 
-This creates `aura_price_models.pkl` using:
+Both frequencies use four economic and event layers alongside technical features.
 
-- Hourly gold, crude oil, Treasury 10-year yield, and U.S. dollar data for the
-  next 1-hour candle.
-- Five years of daily data for the 7- and 30-trading-day forecasts.
-- Causally lagged daily gold-volatility (`^GVZ`) and VIX (`^VIX`) observations
-  for both forecast frequencies, forward-filled across differing market
-  holidays.
-- Engineered technical and relative market features; raw OHLC and future-target
-  columns are excluded from model inputs.
-- Fear level, one-day relative change, trailing 20-day z-score, and a
-  gold-volatility/DXY interaction feature, alongside monetary and inflationary
-  market drivers.
-- CatBoost + a 14-step LSTM for the hourly forecast, and Ridge + CatBoost for
-  the daily forecasts.
-- Chronological train, validation-tuning, independent conformal-calibration,
-  and holdout partitions separated by horizon-sized embargoes.
+1. Geopolitical and war risk adds a 20-session GVZ z-score to the absolute oil
+   return shock measured against the prior 20 oil sessions.
+2. Sentiment combines VIX relative to its 20-session EMA with RSI and gold's
+   distance from its 20-bar EMA. A score at or above 0.25 activates the panic flag.
+3. Real-rate and USD pressure adds the one-session yield change in decimal
+   units to the DXY return and subtracts the TIP return. TIP is a market proxy
+   affected by real yields and bond duration.
+4. Calendar and liquidity features encode month, ISO week, and weekday as
+   cycles. Flags cover Friday from 14:00 to 17:00 New York time (all Friday daily
+   sessions), the first and last three scheduled US trading days of the month,
+   recurring US and UK holidays and their preceding market sessions,
+   October–November and January–February festival demand, and the week
+   containing the first Friday of each month as an NFP proxy.
 
-The evaluation reports Close MAE, Close MAPE, the naive close-price baseline,
-and empirical 95%/99% range coverage on the untouched holdout. It also compares
-models with and without the risk features on identical chronological splits and
-prints the resulting Close MAE, skill score, and interval coverage for 1H, 7D,
-and 30D. Calibration quantiles and ensemble weights are selected using
-validation data only; the holdout remains evaluation-only.
+CatBoost and a 14-bar LSTM forecast 1H. CatBoost and Ridge forecast 7D and
+30D. The models divide each target return by the trailing 20-bar standard
+deviation of completed close returns times the square root of the horizon.
+The blended prediction is converted back to dollars with the origin close and
+that same volatility estimate.
 
-Latest saved holdout audit:
+Training, validation tuning, conformal calibration, and the locked holdout are
+chronological, with a full horizon of excluded bars between adjacent partitions.
+Daily validation has 200 usable rows per horizon across tuning and calibration,
+plus the embargo between them. The holdout uses the last 200 eligible hourly
+origins and the last 100 eligible daily origins per horizon. Blend weights
+and shrinkage are chosen on validation with close MAE. The 80% likely and 95%
+risk intervals use finite-sample quantiles of absolute normalized close errors
+on the subsequent calibration slice. Interval widths scale with each origin's
+gold price and realized volatility.
 
-- 1H: Close MAE $8.755 vs. $8.720 baseline; MAPE 0.219%; 95%/99% coverage
-  94.50%/98.50%.
-- 7 trading days: Close MAE $159.959 vs. $119.621 baseline; MAPE 3.822%;
-  coverage 100%/100%.
-- 30 trading days: Close MAE $359.606 vs. $334.306 baseline; MAPE 8.632%;
-  coverage 100%/100%.
+The feedback term applies 25% of the rolling mean of out-of-sample normalized
+base forecast errors over the latest 20 matured bar positions. An error first
+becomes eligible at its origin plus the forecast horizon. Holdout and live
+forecasts use the same walk-forward rule and embargo exclusions. Model
+parameters, shrinkage, and interval quantiles stay fixed throughout holdout
+evaluation.
 
-The current model did not beat the naive close-price baseline on any horizon.
-The dashboard reports this explicitly; calibrated interval coverage does not
-mean that point forecasts are more accurate or guarantee future performance.
+The Holdout Test benchmark compares close MAE against a no-change forecast
+that carries the origin close forward. Positive skill means a lower MAE and is
+computed as 100 × (1 − model MAE / baseline MAE). The report includes MAPE,
+empirical coverage for both ranges, and the leading CatBoost feature
+importances. The API and dashboard display the same holdout metrics.
 
 ## 4) Export audit data and charts
 
 ```powershell
 .\.venv\Scripts\python.exe .\export_data_and_charts.py
+.\.venv\Scripts\python.exe -m unittest -v test_forecast_integrity
 ```
 
-This writes the cleaned and feature CSV files and four 300-DPI audit charts
-under `charts/`.
+The export verifies the two snapshot hashes against the trained bundle and uses
+its stored holdout series. It writes cleaned_market_data.csv, aura_gold_dataset.csv
+and four 300-DPI charts under charts/. The interval chart aligns the actual and
+predicted closes by target date at all three horizons.
 
 ## 5) Run the local API and dashboard
 

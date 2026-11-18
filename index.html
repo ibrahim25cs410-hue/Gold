@@ -99,10 +99,6 @@ html[data-theme=light] .run{color:#fff;background:linear-gradient(135deg,#c9921f
 .lg i.f{background:repeating-linear-gradient(90deg,var(--gold) 0 5px,transparent 5px 9px)}
 .lg i.r{height:8px;background:color-mix(in srgb,var(--gold) 25%,transparent)}
 /* insight */
-.ring{position:relative;width:150px;height:150px;margin:6px auto 14px}
-.ring svg{transform:rotate(-90deg)}
-.ring .v{position:absolute;inset:0;display:grid;place-content:center;text-align:center;font-size:28px;font-weight:800;line-height:1.1}
-.ring small{font-size:11px;color:var(--mut);font-weight:500}
 .kv{display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line);font-size:13px}
 .kv span{color:var(--mut)}.kv b{font-weight:600}
 /* units */
@@ -185,19 +181,18 @@ body[data-page=converter] main.grid>#converterCard,body[data-page=making] main.g
   <section class="card c8">
     <h2 data-i="chart"></h2>
     <div class="chartbox"><canvas id="cv"></canvas><div class="empty" id="empty"><b data-i="e1"></b><span data-i="e2"></span></div></div>
-    <div class="lg"><span><i></i><span data-i="cur"></span></span><span><i class="f"></i><span data-i="lf"></span></span><span><i class="r"></i><span data-i="range99"></span></span></div>
+    <div class="lg"><span><i></i><span data-i="cur"></span></span><span><i class="f"></i><span data-i="lf"></span></span><span><i class="r"></i><span data-i="range95"></span></span><span><i class="r" style="opacity:.9"></i><span data-i="range80"></span></span></div>
   </section>
 
   <section class="card c4">
     <h2 data-i="acc"></h2>
-    <div class="ring">
-      <svg width="150" height="150" viewBox="0 0 150 150"><circle cx="75" cy="75" r="64" fill="none" stroke="var(--line)" stroke-width="10"/><circle id="arc" cx="75" cy="75" r="64" fill="none" stroke="var(--gold)" stroke-width="10" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402" style="transition:stroke-dashoffset 1.2s cubic-bezier(.3,.9,.3,1)"/></svg>
-      <div class="v"><span><span class="num" id="accv">—</span><br><small data-i="test"></small></span></div>
-    </div>
     <div class="kv"><span data-i="model"></span><b id="modelName">—</b></div>
     <div class="kv"><span data-i="closeMae"></span><b id="closeMae" class="num">—</b></div>
     <div class="kv"><span data-i="closeMape"></span><b id="closeMape">—</b></div>
-    <div class="kv"><span data-i="rangeCoverage"></span><b id="rangeCoverage">—</b></div>
+    <div class="kv"><span data-i="baselineMae"></span><b id="baselineMae">—</b></div>
+    <div class="kv"><span data-i="skill"></span><b id="skill">—</b></div>
+    <div class="kv"><span data-i="coverage80"></span><b id="coverage80">—</b></div>
+    <div class="kv"><span data-i="coverage95"></span><b id="coverage95">—</b></div>
     <div class="kv"><span data-i="volatility"></span><b id="volatility" class="num">—</b></div>
     <div class="kv"><span data-i="baseline"></span><b id="baselineStatus">—</b></div>
     <p class="note" data-i="warn"></p>
@@ -242,8 +237,8 @@ body[data-page=converter] main.grid>#converterCard,body[data-page=making] main.g
 const $=id=>document.getElementById(id),OZ=31.1035;
 const DIV={ounce:1,g24:OZ,g21:OZ*24/21,g18:OZ*24/18};
 const T={
-ar:{title:"توقع سعر الذهب ونطاقه",desc:"توقعات سعرية من بيانات السوق والنماذج المعتمدة. النتائج تقديرية وليست نصيحة استثمارية.",plabel:"السعر المتوقع للإغلاق",cur:"السعر الحالي",low:"الدعم المتوقع · نطاق 99%",high:"المقاومة المتوقعة · نطاق 99%",hor:"مدة التوقع",unit:"الوحدة والعيار",run:"شغّل التوقع",refresh:"تحديث",clear:"مسح",home:"الرئيسية",converterPage:"حاسبة العملات",makingPage:"حاسبة المصنعية",chart:"السعر الحالي والتوقع والنطاق",e1:"لا توجد نتائج بعد",e2:"اضغط «شغّل التوقع» لعرض المسار.",lf:"الإغلاق المتوقع",range99:"النطاق المعاير 99%",acc:"تدقيق النموذج",test:"دقة الإغلاق",model:"النموذج",closeMae:"MAE الإغلاق ($)",closeMape:"MAPE الإغلاق (%)",rangeCoverage:"تغطية نطاق 99% في الاختبار",volatility:"التقلب المتوقع",baseline:"تفوق على خط الأساس",yes:"نعم",no:"لا",warn:"المقاييس محسوبة على اختبار محجوب، ولا تضمن الأداء المستقبلي.",all:"التوقعات حسب الوحدة",iqdv:"القيمة بالدينار العراقي",conv:"حاسبة الدولار والدينار",usd:"المبلغ بالدولار",iqd:"المبلغ بالدينار",rate:"سعر الصرف (دينار لكل دولار)",rn:"سعر الصرف يُدخَل يدوياً وليس مباشراً من السوق.",makingTitle:"حاسبة أجور الذهب والصياغة",goldWeight:"وزن الذهب (غرام)",makingRate:"أجرة الصياغة لكل غرام ($)",makingKarat:"عيار الذهب",goldValue:"قيمة الذهب الخام",makingValue:"قيمة المصنعية",makingTotal:"الإجمالي مع المصنعية",makingNote:"الحساب تقديري حسب السعر الحالي وعيار الذهب. أدخل المصنعية بالدولار لكل غرام.",h:["الجلسة الساعية القادمة","7 أيام تداول","30 يوم تداول"],u:{ounce:"أونصة",g24:"غرام 24",g21:"غرام 21",g18:"غرام 18"},un:{ounce:"سعر الأونصة",g24:"عيار 24 · ذهب نقي",g21:"عيار 21",g18:"عيار 18"},hz:n=>n===1?"الجلسة الساعية القادمة":`أفق ${n} يوم تداول`,liveTitle:"السعر الحالي",liveNow:"بيانات السوق",marketClosed:"السوق مغلق — آخر سعر متاح",liveAsOf:"آخر تحديث",source:"المصدر",liveNote:"السعر الحالي من السوق؛ أما البطاقات الأخرى فتعرض نتائج النموذج.",forecastList:"التوقعات حسب الأفق",ready:"النموذج جاهز",busy:"جارٍ التوقع…",off:"السيرفر غير متصل",lang:"English",theme:"تبديل المظهر",now:"الآن",tgt:"الأفق",errmsg:"تعذّر الاتصال بالسيرفر. شغّل run_app.bat ثم اضغط «تحديث».",status:"الحالة"},
-en:{title:"Gold price and range forecasts",desc:"Price estimates based on market data and the approved forecasting models. Results are estimates, not investment advice.",plabel:"Expected closing price",cur:"Current price",low:"Expected support · 99% range",high:"Expected resistance · 99% range",hor:"Forecast horizon",unit:"Unit and karat",run:"Run forecast",refresh:"Refresh",clear:"Clear",home:"Home",converterPage:"Currency converter",makingPage:"Making calculator",chart:"Current price, forecast and range",e1:"No results yet",e2:"Press Run forecast to draw the forecast.",lf:"Expected close",range99:"99% calibrated range",acc:"Model audit",test:"Close-price accuracy",model:"Model",closeMae:"Close MAE ($)",closeMape:"Close MAPE (%)",rangeCoverage:"99% holdout coverage",volatility:"Expected volatility",baseline:"Beats naive baseline",yes:"Yes",no:"No",warn:"Metrics are measured on a held-out test set and do not guarantee future performance.",all:"Forecast by unit",iqdv:"Value in Iraqi dinar",conv:"USD to IQD converter",usd:"Amount in USD",iqd:"Amount in IQD",rate:"Exchange rate (IQD per USD)",rn:"The exchange rate is entered manually and is not a live market feed.",makingTitle:"Gold making charge calculator",goldWeight:"Gold weight (grams)",makingRate:"Making charge per gram ($)",makingKarat:"Gold karat",goldValue:"Raw gold value",makingValue:"Making charge",makingTotal:"Total with making",makingNote:"Estimated from the current price and selected karat. Enter making charge in USD per gram.",h:["Next 1H session","7 trading days","30 trading days"],u:{ounce:"Ounce",g24:"Gram 24",g21:"Gram 21",g18:"Gram 18"},un:{ounce:"Per troy ounce",g24:"24K · pure gold",g21:"21K",g18:"18K"},hz:n=>n===1?"Next hourly session":`${n} trading days`,liveTitle:"Current gold price",liveNow:"Market data",marketClosed:"Market closed — latest available price",liveAsOf:"Last update",source:"Source",liveNote:"The current price is live market data; the other cards show model forecasts.",forecastList:"Forecasts by horizon",ready:"Model ready",busy:"Forecasting…",off:"Server offline",lang:"العربية",theme:"Toggle theme",now:"Now",tgt:"Horizon",errmsg:"Cannot reach the server. Run run_app.bat then press Refresh.",status:"Status"}
+ar:{title:"توقع سعر الذهب ونطاقه",desc:"توقعات سعرية من بيانات السوق والنماذج المعتمدة. النتائج تقديرية وليست نصيحة استثمارية.",plabel:"السعر المتوقع للإغلاق",cur:"السعر الحالي",low:"الحد الأدنى · نطاق المخاطر 95%",high:"الحد الأعلى · نطاق المخاطر 95%",hor:"مدة التوقع",unit:"الوحدة والعيار",run:"شغّل التوقع",refresh:"تحديث",clear:"مسح",home:"الرئيسية",converterPage:"حاسبة العملات",makingPage:"حاسبة المصنعية",chart:"السعر الحالي والتوقع والنطاق",e1:"لا توجد نتائج بعد",e2:"اضغط «شغّل التوقع» لعرض المسار.",lf:"الإغلاق المتوقع",range95:"نطاق المخاطر 95%",range80:"النطاق المرجح 80%",acc:"تدقيق النموذج",model:"النموذج",closeMae:"MAE الإغلاق ($)",closeMape:"MAPE الإغلاق (%)",coverage95:"تغطية نطاق 95% في الاختبار",coverage80:"تغطية نطاق 80% في الاختبار",baselineMae:"MAE إغلاق خط الأساس ($)",skill:"المهارة مقابل خط الأساس (%)",volatility:"التقلب المحقق وفق الأفق",baseline:"تفوق على خط الأساس",yes:"نعم",no:"لا",warn:"المقاييس محسوبة على اختبار محجوب، ولا تضمن الأداء المستقبلي.",all:"التوقعات حسب الوحدة",iqdv:"القيمة بالدينار العراقي",conv:"حاسبة الدولار والدينار",usd:"المبلغ بالدولار",iqd:"المبلغ بالدينار",rate:"سعر الصرف (دينار لكل دولار)",rn:"سعر الصرف يُدخَل يدوياً وليس مباشراً من السوق.",makingTitle:"حاسبة أجور الذهب والصياغة",goldWeight:"وزن الذهب (غرام)",makingRate:"أجرة الصياغة لكل غرام ($)",makingKarat:"عيار الذهب",goldValue:"قيمة الذهب الخام",makingValue:"قيمة المصنعية",makingTotal:"الإجمالي مع المصنعية",makingNote:"الحساب تقديري حسب السعر الحالي وعيار الذهب. أدخل المصنعية بالدولار لكل غرام.",h:["الجلسة الساعية القادمة","7 أيام تداول","30 يوم تداول"],u:{ounce:"أونصة",g24:"غرام 24",g21:"غرام 21",g18:"غرام 18"},un:{ounce:"سعر الأونصة",g24:"عيار 24 · ذهب نقي",g21:"عيار 21",g18:"عيار 18"},hz:n=>n===1?"الجلسة الساعية القادمة":`أفق ${n} يوم تداول`,liveTitle:"السعر الحالي",liveNow:"بيانات السوق",marketClosed:"السوق مغلق — آخر سعر متاح",liveAsOf:"آخر تحديث",source:"المصدر",liveNote:"السعر الحالي من السوق؛ أما البطاقات الأخرى فتعرض نتائج النموذج.",forecastList:"التوقعات حسب الأفق",ready:"النموذج جاهز",busy:"جارٍ التوقع…",off:"السيرفر غير متصل",lang:"English",theme:"تبديل المظهر",now:"الآن",tgt:"الأفق",errmsg:"تعذّر الاتصال بالسيرفر. شغّل run_app.bat ثم اضغط «تحديث».",status:"الحالة"},
+en:{title:"Gold price and range forecasts",desc:"Price estimates based on market data and the approved forecasting models. Results are estimates, not investment advice.",plabel:"Expected closing price",cur:"Current price",low:"95% risk range · lower bound",high:"95% risk range · upper bound",hor:"Forecast horizon",unit:"Unit and karat",run:"Run forecast",refresh:"Refresh",clear:"Clear",home:"Home",converterPage:"Currency converter",makingPage:"Making calculator",chart:"Current price, forecast and range",e1:"No results yet",e2:"Press Run forecast to draw the forecast.",lf:"Expected close",range95:"95% risk range",range80:"80% likely range",acc:"Model audit",model:"Model",closeMae:"Close MAE ($)",closeMape:"Close MAPE (%)",coverage95:"95% holdout coverage",coverage80:"80% holdout coverage",baselineMae:"Baseline close MAE ($)",skill:"Skill vs. baseline (%)",volatility:"Horizon-scaled realized volatility",baseline:"Beats naive baseline",yes:"Yes",no:"No",warn:"Metrics are measured on a held-out test set and do not guarantee future performance.",all:"Forecast by unit",iqdv:"Value in Iraqi dinar",conv:"USD to IQD converter",usd:"Amount in USD",iqd:"Amount in IQD",rate:"Exchange rate (IQD per USD)",rn:"The exchange rate is entered manually and is not a live market feed.",makingTitle:"Gold making charge calculator",goldWeight:"Gold weight (grams)",makingRate:"Making charge per gram ($)",makingKarat:"Gold karat",goldValue:"Raw gold value",makingValue:"Making charge",makingTotal:"Total with making",makingNote:"Estimated from the current price and selected karat. Enter making charge in USD per gram.",h:["Next 1H session","7 trading days","30 trading days"],u:{ounce:"Ounce",g24:"Gram 24",g21:"Gram 21",g18:"Gram 18"},un:{ounce:"Per troy ounce",g24:"24K · pure gold",g21:"21K",g18:"18K"},hz:n=>n===1?"Next hourly session":`${n} trading days`,liveTitle:"Current gold price",liveNow:"Market data",marketClosed:"Market closed — latest available price",liveAsOf:"Last update",source:"Source",liveNote:"The current price is live market data; the other cards show model forecasts.",forecastList:"Forecasts by horizon",ready:"Model ready",busy:"Forecasting…",off:"Server offline",lang:"العربية",theme:"Toggle theme",now:"Now",tgt:"Horizon",errmsg:"Cannot reach the server. Run run_app.bat then press Refresh.",status:"Status"}
 };
 const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
 const HORIZONS=[1,7,30];
@@ -296,12 +291,6 @@ function paint(){
   updateClock();
 }
 
-function ring(percent){
-  const value=percent==null?0:Math.max(0,Math.min(100,Number(percent)||0));
-  $("arc").style.strokeDashoffset=402*(1-value/100);
-  $("accv").textContent=percent==null?"—":fmt(value,2)+"%";
-}
-
 function render(animate=true){
   const t=T[lang];
   if(liveQuote){
@@ -320,7 +309,7 @@ function render(animate=true){
   calculateMaking();
   const tiles=Object.keys(DIV).map(k=>`<button class="tile ${k===unit?"on":""}" data-u="${k}"><span>${t.u[k]}</span><small>${t.un[k]}</small><b class="num">${data?"$"+fmt(data.predicted_price/DIV[k]):"—"}</b></button>`).join("");
   if($("tiles").innerHTML!==tiles)$("tiles").innerHTML=tiles;
-  if(!data){$("empty").style.display="grid";ring(null);return}
+  if(!data){$("empty").style.display="grid";return}
   const d=DIV[unit],tgt=data.predicted_price/d,cur=data.current_price/d;
   animate?count(tgt):($("price").textContent="$"+fmt(tgt),shown=tgt);
   $("horizonBadge").textContent=t.h[data.horizon===1?0:data.horizon===7?1:2];
@@ -328,10 +317,12 @@ function render(animate=true){
   $("cur").textContent="$"+fmt(cur);
   $("low").textContent="$"+fmt(data.predicted_low/d);
   $("high").textContent="$"+fmt(data.predicted_high/d);
-  ring(data.model_accuracy_pct);
   $("closeMae").textContent="$"+fmt(data.mae_close_usd,2);
   $("closeMape").textContent=fmt(data.mape_close_pct,2)+"%";
-  $("rangeCoverage").textContent=fmt(data.range_coverage_99_pct,1)+"%";
+  $("baselineMae").textContent="$"+fmt(data.baseline_mae_close_usd,2);
+  $("skill").textContent=data.skill_score_pct===null?"—":fmt(data.skill_score_pct,2)+"%";
+  $("coverage80").textContent=fmt(data.range_coverage_80_pct,1)+"%";
+  $("coverage95").textContent=fmt(data.range_coverage_95_pct,1)+"%";
   $("volatility").textContent="$"+fmt(data.volatility_usd/d);
   $("baselineStatus").textContent=data.beats_baseline?t.yes:t.no;
   $("modelName").textContent=data.horizon===1?"CatBoost + LSTM":"Ridge + CatBoost";
@@ -345,7 +336,8 @@ function renderForecasts(){
     return `<button class="forecast-item ${item.horizon===horizon?"active":""}" data-horizon="${item.horizon}">
       <small>${t.h[HORIZONS.indexOf(item.horizon)]}</small>
       <b>$${fmt(item.predicted_price/DIV[unit])}</b>
-      <span class="range">${t.range99}: $${fmt(item.predicted_low/DIV[unit])} – $${fmt(item.predicted_high/DIV[unit])}</span>
+      <span class="range">${t.range95}: $${fmt(item.predicted_low/DIV[unit])} – $${fmt(item.predicted_high/DIV[unit])}</span>
+      <span class="range">${t.range80}: $${fmt(item.predicted_low_80/DIV[unit])} – $${fmt(item.predicted_high_80/DIV[unit])}</span>
     </button>`;
   }).join("");
   if(list.innerHTML!==html)list.innerHTML=html;
@@ -366,12 +358,15 @@ function draw(d){
   if(typeof Chart==="undefined")return;
   const t=T[lang],cur=data.current_price/d,tgt=data.predicted_price/d,low=data.predicted_low/d,high=data.predicted_high/d;
   const labels=[t.now,`${t.tgt} · ${data.horizon}`],gold=css("--gold"),mut=css("--mut"),ln=css("--line");
-  const chartKey=JSON.stringify([labels,cur,tgt,low,high,d]);
+  const low80=data.predicted_low_80/d,high80=data.predicted_high_80/d;
+  const chartKey=JSON.stringify([labels,cur,tgt,low,high,low80,high80,d]);
   if(chart&&chartKey===lastChartKey)return;
   lastChartKey=chartKey;
   const datasets=[
     {label:t.high,data:[cur,high],borderColor:css("--up"),borderDash:[4,5],borderWidth:1.5,pointRadius:[0,4],pointBackgroundColor:css("--up"),fill:false},
     {label:t.low,data:[cur,low],borderColor:css("--down"),borderDash:[4,5],borderWidth:1.5,pointRadius:[0,4],pointBackgroundColor:css("--down"),fill:{target:0,above:gold+"22",below:gold+"22"}},
+    {label:t.range80,data:[cur,high80],borderColor:gold+"66",borderWidth:1,pointRadius:[0,3],fill:false},
+    {label:t.range80,data:[cur,low80],borderColor:gold+"66",borderWidth:1,pointRadius:[0,3],fill:{target:2,above:gold+"33",below:gold+"33"}},
     {label:t.lf,data:[cur,tgt],borderColor:gold,borderDash:[7,5],borderWidth:2.5,pointRadius:[5,6],pointBackgroundColor:gold,fill:false}
   ];
   if(chart){
@@ -381,7 +376,7 @@ function draw(d){
   }else{
   Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
   chart=new Chart($("cv").getContext("2d"),{type:"line",data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,animation:{duration:700,easing:"easeOutQuart"},interaction:{mode:"index",intersect:false},
-    plugins:{legend:{display:false},tooltip:{rtl:false,backgroundColor:"#101014",borderColor:"#ffffff22",borderWidth:1,titleColor:"#9a9aa6",bodyColor:"#fff",padding:10,callbacks:{label:c=>c.raw==null?null:"$"+fmt(c.raw)}}},
+    plugins:{legend:{display:false},tooltip:{rtl:false,backgroundColor:"#101014",borderColor:"#ffffff22",borderWidth:1,titleColor:"#9a9aa6",bodyColor:"#fff",padding:10,callbacks:{label:c=>c.raw==null?null:c.dataset.label+" · $"+fmt(c.raw)}}},
     scales:{x:{grid:{display:false},ticks:{color:mut,maxTicksLimit:6,callback:value=>labels[value]||""}},y:{grid:{color:ln},ticks:{color:mut,callback:v=>"$"+fmt(v,0)}}}}});
   }
   $("empty").style.display="none";
@@ -405,8 +400,12 @@ async function predict(){
       if(!r.ok)throw new Error("HTTP "+r.status);
       const j=await r.json();
       if(j.status==="error")throw new Error(j.message||"error");
-      const required=["current_price","predicted_price","predicted_high","predicted_low","model_accuracy_pct","mae_close_usd","mape_close_pct","range_coverage_99_pct","volatility_usd"];
-      const missing=required.filter(key=>!Number.isFinite(Number(j[key])));
+      const required=["current_price","predicted_price","predicted_high","predicted_low",
+        "predicted_high_80","predicted_low_80","mae_close_usd","baseline_mae_close_usd","mape_close_pct",
+        "range_coverage_80_pct","range_coverage_95_pct","volatility_usd"];
+      const missing=required.filter(key=>!Number.isFinite(j[key]));
+      if(j.skill_score_pct!==null&&!Number.isFinite(j.skill_score_pct))missing.push("skill_score_pct");
+      if(typeof j.beats_baseline!=="boolean")missing.push("beats_baseline");
       if(missing.length)throw new Error(`Invalid forecast response: ${missing.join(", ")}`);
       return j;
     }));

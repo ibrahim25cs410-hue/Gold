@@ -1,123 +1,73 @@
 from __future__ import annotations
 
-import importlib.util
-import subprocess
-import sys
 from pathlib import Path
-
-
-def ensure_yfinance() -> None:
-    if importlib.util.find_spec("yfinance") is None:
-        print("yfinance غير مثبتة؛ جاري تثبيتها في بيئة Python الحالية...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "yfinance"],
-            check=True,
-        )
-
-
-ensure_yfinance()
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from price_features import align_lagged_daily_close, completed_bar_trend
+
+from price_features import MACRO_TICKERS, align_daily_macro, completed_bar_trend, flatten
 
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT_FILE = ROOT / "gold_full_dataset.csv"
+DAILY_FILE = ROOT / "gold_daily_dataset.csv"
 LAGS = (1, 2, 3, 5, 10, 20)
-TICKERS = {
-    "الذهب (GC=F)": "GC=F",
-    "النفط الخام (CL=F)": "CL=F",
-    "السندات الأمريكية (^TNX)": "^TNX",
-    "مؤشر الدولار (DX-Y.NYB)": "DX-Y.NYB",
-}
-DAILY_INDICATORS = {"GVZ_Close": "^GVZ", "VIX_Close": "^VIX"}
+GOLD_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 
 
-def remove_timezone(index: pd.Index) -> pd.DatetimeIndex:
-    dates = pd.DatetimeIndex(pd.to_datetime(index, errors="coerce"))
-    if dates.isna().any():
-        raise ValueError("تعذر تحويل بعض التواريخ إلى صيغة تاريخ صالحة.")
-    if dates.tz is not None:
-        dates = dates.tz_convert("UTC").tz_localize(None)
-    return dates.floor("h")
+def download_market(ticker: str, period: str, interval: str, columns: list[str]) -> pd.DataFrame:
+    data = flatten(yf.download(
+        ticker, period=period, interval=interval, auto_adjust=False,
+        progress=False, threads=False, timeout=15,
+    ))
+    if data.empty or not set(columns).issubset(data.columns):
+        raise RuntimeError(f"Yahoo Finance returned no usable {interval} data for {ticker}.")
+    data = data[columns].apply(pd.to_numeric, errors="coerce").dropna()
+    dates = pd.DatetimeIndex(data.index)
+    if interval == "1h":
+        dates = dates.tz_convert("UTC") if dates.tz is not None else dates
+        data.index = dates.tz_localize(None).floor("h")
+    else:
+        data.index = dates.tz_localize(None).normalize()
+    if data.empty or data.index.hasnans:
+        raise RuntimeError(f"Yahoo Finance returned invalid {interval} bars for {ticker}.")
+    return data.loc[~data.index.duplicated(keep="last")].sort_index()
 
 
-def flatten_yfinance_columns(data: pd.DataFrame) -> pd.DataFrame:
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data.copy()
-        data.columns = data.columns.get_level_values(0)
-    return data
+def download_macro_closes() -> dict[str, pd.Series]:
+    return {name: download_market(ticker, "5y", "1d", ["Close"])["Close"]
+            for name, ticker in MACRO_TICKERS.items()}
 
 
-def download_ticker(ticker: str, columns: list[str]) -> pd.DataFrame:
-    data = yf.download(
-        ticker,
-        period="730d",
-        interval="1h",
-        auto_adjust=False,
-        progress=False,
-        threads=False,
-    )
-    if data.empty:
-        raise RuntimeError(f"لم تُرجع yfinance بيانات للرمز {ticker}.")
-
-    data = flatten_yfinance_columns(data)
-    missing_columns = [column for column in columns if column not in data.columns]
-    if missing_columns:
-        raise RuntimeError(
-            f"الأعمدة المطلوبة {missing_columns} غير متاحة للرمز {ticker}."
-        )
-    data = data.loc[:, columns].copy()
-    data.index = remove_timezone(data.index)
-    return data[~data.index.duplicated(keep="last")].sort_index()
-
-
-def download_daily_indicators(
-    index: pd.Index, period: str = "5y"
+def download_hourly(
+    macro_closes: dict[str, pd.Series] | None = None, as_of: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    indicators = {}
-    for column, ticker in DAILY_INDICATORS.items():
-        raw = yf.download(
-            ticker,
-            period=period,
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        )
-        if raw.empty:
-            raise RuntimeError(f"لم تُرجع yfinance بيانات يومية للرمز {ticker}.")
-        raw = flatten_yfinance_columns(raw)
-        if "Close" not in raw.columns:
-            raise RuntimeError(f"عمود Close غير متاح للرمز {ticker}.")
-        indicators[column] = align_lagged_daily_close(raw["Close"], index)
-    return pd.DataFrame(indicators, index=index)
+    now = as_of if as_of is not None else pd.Timestamp.now(tz="UTC")
+    gold = download_market("GC=F", "730d", "1h", GOLD_COLUMNS)
+    gold = gold.loc[gold.index + pd.Timedelta(hours=1) <= now.tz_convert("UTC").tz_localize(None)]
+    closes = macro_closes if macro_closes is not None else download_macro_closes()
+    macro = align_daily_macro(closes, gold.index).rename(
+        columns={"US10Y_Close": "US10Y_Yield", "DXY_Close": "DXY"},
+    )
+    data = add_relative_features(add_technical_features(gold.join(macro)))
+    for lag in LAGS:
+        for name, column in (("Close", "Close"), ("Oil", "Oil_Close"),
+                             ("US10Y", "US10Y_Yield"), ("DXY", "DXY")):
+            data[f"{name}_Lag_{lag}"] = data[column].shift(lag)
+    return data.replace([np.inf, -np.inf], np.nan)
 
 
-def check_yfinance_connection() -> None:
-    print("=== فحص اتصال yfinance ببيانات الساعة ===")
-    for label, ticker in TICKERS.items():
-        data = yf.download(
-            ticker,
-            period="5d",
-            interval="1h",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        )
-        if data.empty:
-            raise RuntimeError(
-                f"فشل جلب البيانات للرمز {label} ({ticker}). تحقق من الاتصال."
-            )
-        data = flatten_yfinance_columns(data)
-        if "Close" not in data.columns:
-            raise RuntimeError(f"عمود Close غير متاح للرمز {ticker}.")
-        print(
-            f"[OK] {label}: {len(data)} شمعة، "
-            f"آخر إغلاق = {float(data['Close'].iloc[-1]):.2f}"
-        )
+def download_daily(
+    macro_closes: dict[str, pd.Series] | None = None, as_of: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    now = (as_of if as_of is not None else pd.Timestamp.now(tz="UTC")).tz_convert("America/New_York")
+    gold = download_market("GC=F", "5y", "1d", GOLD_COLUMNS)
+    # Yahoo can publish an in-progress daily candle on the current session date.
+    gold = gold.loc[gold.index + pd.Timedelta(hours=17) <= now.tz_localize(None)]
+    gold = gold.rename(columns={"High": "Gold_High", "Low": "Gold_Low"})
+    closes = macro_closes if macro_closes is not None else download_macro_closes()
+    return gold.join(align_daily_macro(closes, gold.index))
 
 
 def add_technical_features(data: pd.DataFrame) -> pd.DataFrame:
@@ -231,58 +181,31 @@ def triple_barrier_labels(data: pd.DataFrame) -> np.ndarray:
     return labels
 
 
-def build_dataset() -> pd.DataFrame:
-    check_yfinance_connection()
-    print("\nجاري سحب بيانات آخر سنتين بفاصل ساعة...")
-
-    gold = download_ticker(
-        "GC=F", ["Open", "High", "Low", "Close", "Volume"]
-    )
-    oil = download_ticker("CL=F", ["Close"]).rename(
-        columns={"Close": "Oil_Close"}
-    )
-    treasury = download_ticker("^TNX", ["Close"]).rename(
-        columns={"Close": "US10Y_Yield"}
-    )
-    dollar = download_ticker("DX-Y.NYB", ["Close"]).rename(
-        columns={"Close": "DXY"}
-    )
-
-    data = gold.join([oil, treasury, dollar], how="left")
-    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
-    data = add_technical_features(data)
-    data = add_relative_features(data)
-
-    for lag in LAGS:
-        data[f"Close_Lag_{lag}"] = data["Close"].shift(lag)
-        data[f"Oil_Lag_{lag}"] = data["Oil_Close"].shift(lag)
-        data[f"US10Y_Lag_{lag}"] = data["US10Y_Yield"].shift(lag)
-        data[f"DXY_Lag_{lag}"] = data["DXY"].shift(lag)
-
-    data["Target_High"] = data["High"].shift(-1)
-    data["Target_Low"] = data["Low"].shift(-1)
-    data["Target_Close"] = data["Close"].shift(-1)
+def build_dataset(
+    macro_closes: dict[str, pd.Series] | None = None, as_of: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    data = download_hourly(macro_closes, as_of)
+    for column in ("High", "Low", "Close"):
+        data[f"Target_{column}"] = data[column].shift(-1)
     data["Target_Close_8h"] = data["Close"].shift(-8)
     data["Direction_Label"] = triple_barrier_labels(data)
-
-    data = data.replace([np.inf, -np.inf], np.nan).dropna()
     if len(data) <= 10_000:
-        raise RuntimeError(
-            f"تم توليد {len(data)} شمعة فقط؛ المطلوب أكثر من 10,000 شمعة."
-        )
+        raise RuntimeError(f"Expected over 10,000 hourly bars, received {len(data)}.")
     return data
 
 
 def main() -> None:
-    dataset = build_dataset()
-    dataset.to_csv(OUTPUT_FILE, index_label="Date")
-    labels = dataset["Direction_Label"].value_counts().to_dict()
-    print(
-        f"\nتم بناء الداتا سيت الساعي بنجاح في {OUTPUT_FILE.name}!"
-        f"\nعدد الشموع: {len(dataset)} | عدد الأعمدة: {len(dataset.columns)}"
-        f"\nالتصنيف: صعود واضح={labels.get(1, 0)} | "
-        f"هبوط واضح={labels.get(0, 0)} | محايد={labels.get(-1, 0)}"
-    )
+    as_of = pd.Timestamp.now(tz="UTC")
+    macro_closes = download_macro_closes()
+    hourly = build_dataset(macro_closes, as_of)
+    daily = download_daily(macro_closes, as_of)
+    if len(daily) < 500:
+        raise RuntimeError(f"Expected at least 500 daily bars, received {len(daily)}.")
+    for frame, destination in ((hourly, OUTPUT_FILE), (daily, DAILY_FILE)):
+        temporary = destination.with_suffix(".csv.tmp")
+        frame.to_csv(temporary, index_label="Date")
+        temporary.replace(destination)
+        print(f"Saved {len(frame):,} completed bars to {destination.name}.")
 
 
 if __name__ == "__main__":
