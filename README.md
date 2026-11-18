@@ -71,8 +71,11 @@ local PyTorch training dependency; it is not imported by the serving API.
 .\.venv\Scripts\python.exe .\build_dataset.py
 ```
 
-The script fetches hourly gold, oil, Treasury-yield, and dollar data from
-Yahoo Finance and writes `gold_full_dataset.csv`.
+The script fetches hourly gold, oil, Treasury-yield, and dollar data, plus the
+daily gold-volatility (`^GVZ`) and VIX (`^VIX`) closes, from Yahoo Finance and
+writes `gold_full_dataset.csv`. Each daily risk-index close is lagged by one
+observation before it is forward-filled onto the hourly timestamps, so a
+same-day close cannot leak into earlier hourly bars.
 
 ## 3) Train the price forecaster
 
@@ -85,25 +88,34 @@ This creates `aura_price_models.pkl` using:
 - Hourly gold, crude oil, Treasury 10-year yield, and U.S. dollar data for the
   next 1-hour candle.
 - Five years of daily data for the 7- and 30-trading-day forecasts.
+- Causally lagged daily gold-volatility (`^GVZ`) and VIX (`^VIX`) observations
+  for both forecast frequencies, forward-filled across differing market
+  holidays.
 - Engineered technical and relative market features; raw OHLC and future-target
   columns are excluded from model inputs.
+- Fear level, one-day relative change, trailing 20-day z-score, and a
+  gold-volatility/DXY interaction feature, alongside monetary and inflationary
+  market drivers.
 - CatBoost + a 14-step LSTM for the hourly forecast, and Ridge + CatBoost for
   the daily forecasts.
 - Chronological train, validation-tuning, independent conformal-calibration,
   and holdout partitions separated by horizon-sized embargoes.
 
 The evaluation reports Close MAE, Close MAPE, the naive close-price baseline,
-and empirical 95%/99% range coverage on the untouched holdout. Calibration
-quantiles and ensemble weights are selected using validation data only.
+and empirical 95%/99% range coverage on the untouched holdout. It also compares
+models with and without the risk features on identical chronological splits and
+prints the resulting Close MAE, skill score, and interval coverage for 1H, 7D,
+and 30D. Calibration quantiles and ensemble weights are selected using
+validation data only; the holdout remains evaluation-only.
 
 Latest saved holdout audit:
 
-- 1H: Close MAE $9.249 vs. $9.133 baseline; MAPE 0.230%; 95%/99% coverage
-  94%/98%.
-- 7 trading days: Close MAE $168.729 vs. $120.013 baseline; MAPE 4.022%;
+- 1H: Close MAE $8.755 vs. $8.720 baseline; MAPE 0.219%; 95%/99% coverage
+  94.50%/98.50%.
+- 7 trading days: Close MAE $159.959 vs. $119.621 baseline; MAPE 3.822%;
   coverage 100%/100%.
-- 30 trading days: Close MAE $423.514 vs. $339.876 baseline; MAPE 10.233%;
-  coverage 98%/100%.
+- 30 trading days: Close MAE $359.606 vs. $334.306 baseline; MAPE 8.632%;
+  coverage 100%/100%.
 
 The current model did not beat the naive close-price baseline on any horizon.
 The dashboard reports this explicitly; calibrated interval coverage does not

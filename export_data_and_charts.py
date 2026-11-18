@@ -12,6 +12,7 @@ from train_price_forecaster import (
     download_daily,
     hourly_features,
 )
+from price_features import RISK_FEATURE_COLUMNS
 
 ROOT = Path(__file__).resolve().parent
 BUNDLE_FILE = ROOT / "aura_price_models.pkl"
@@ -26,15 +27,18 @@ def _clean_hourly(raw: pd.DataFrame) -> pd.DataFrame:
     data.index.name = "Date"
     data = data.loc[~data.index.isna()]
     data = data.loc[~data.index.duplicated(keep="last")].sort_index()
-    columns = ["Open", "High", "Low", "Close", "Volume", "Oil_Close", "US10Y_Yield", "DXY"]
+    columns = [
+        "Open", "High", "Low", "Close", "Volume", "Oil_Close",
+        "US10Y_Yield", "DXY", "GVZ_Close", "VIX_Close",
+    ]
     missing = [column for column in columns if column not in data]
     if missing:
         raise ValueError(f"الأعمدة الساعية المطلوبة غير موجودة: {missing}")
     data = data[columns].apply(pd.to_numeric, errors="coerce")
-    data[["Oil_Close", "US10Y_Yield", "DXY"]] = data[
-        ["Oil_Close", "US10Y_Yield", "DXY"]
+    data[["Oil_Close", "US10Y_Yield", "DXY", "GVZ_Close", "VIX_Close"]] = data[
+        ["Oil_Close", "US10Y_Yield", "DXY", "GVZ_Close", "VIX_Close"]
     ].ffill()
-    return data.dropna(subset=["Open", "High", "Low", "Close", "Volume", "Oil_Close", "US10Y_Yield", "DXY"])
+    return data.dropna(subset=columns)
 
 
 def _normalize_daily(raw: pd.DataFrame) -> pd.DataFrame:
@@ -54,16 +58,18 @@ def _normalize_daily(raw: pd.DataFrame) -> pd.DataFrame:
         "Oil_Close",
         "US10Y_Close",
         "DXY_Close",
+        "GVZ_Close",
+        "VIX_Close",
     ]
     missing = [column for column in columns if column not in data]
     if missing:
         raise ValueError(f"الأعمدة اليومية المطلوبة غير موجودة: {missing}")
     data = data[columns].apply(pd.to_numeric, errors="coerce")
-    data[["Oil_Close", "US10Y_Close", "DXY_Close"]] = data[
-        ["Oil_Close", "US10Y_Close", "DXY_Close"]
+    data[["Oil_Close", "US10Y_Close", "DXY_Close", "GVZ_Close", "VIX_Close"]] = data[
+        ["Oil_Close", "US10Y_Close", "DXY_Close", "GVZ_Close", "VIX_Close"]
     ].ffill()
     return data.dropna(
-        subset=["Open", "Gold_High", "Gold_Low", "Close", "Volume", "Oil_Close", "US10Y_Close", "DXY_Close"]
+        subset=columns
     )
 
 
@@ -217,9 +223,17 @@ def _plots(
     # 02: CatBoost importance and relationship of leading features to next return.
     features = meta["features"]
     importance = np.asarray(meta["catboost"].feature_importances_).reshape(-1)
-    ranking = pd.Series(importance, index=features).sort_values(ascending=False).head(15)
+    all_importance = pd.Series(importance, index=features).sort_values(ascending=False)
+    selected = list(all_importance.head(12).index)
+    selected.extend(
+        name
+        for name in RISK_FEATURE_COLUMNS
+        if name in all_importance.index and name not in selected
+    )
+    ranking = all_importance.loc[selected]
     colors = [
-        "#f59e0b" if any(tag in name.lower() for tag in ("dxy", "dollar"))
+        "#f472b6" if any(tag in name.lower() for tag in ("gvz", "vix"))
+        else "#f59e0b" if any(tag in name.lower() for tag in ("dxy", "dollar"))
         else "#a78bfa" if any(tag in name.lower() for tag in ("10y", "us10y", "treasury"))
         else blue
         for name in ranking.index
@@ -241,7 +255,7 @@ def _plots(
     ax1.barh(y, ranking.values, color=colors, alpha=0.9)
     ax1.set_yticks(y, labels=ranking.index)
     ax1.invert_yaxis()
-    ax1.set_title("Top 15 CatBoost feature importances")
+    ax1.set_title("Leading importances plus all GVZ/VIX risk features")
     ax1.set_xlabel("Relative importance")
     ax1.grid(axis="x", alpha=0.25)
     corr = np.nan_to_num(np.asarray(correlations, dtype=float), nan=0.0)

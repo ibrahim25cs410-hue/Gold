@@ -20,7 +20,7 @@ ensure_yfinance()
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from price_features import completed_bar_trend
+from price_features import align_lagged_daily_close, completed_bar_trend
 
 
 ROOT = Path(__file__).resolve().parent
@@ -32,6 +32,7 @@ TICKERS = {
     "السندات الأمريكية (^TNX)": "^TNX",
     "مؤشر الدولار (DX-Y.NYB)": "DX-Y.NYB",
 }
+DAILY_INDICATORS = {"GVZ_Close": "^GVZ", "VIX_Close": "^VIX"}
 
 
 def remove_timezone(index: pd.Index) -> pd.DatetimeIndex:
@@ -71,6 +72,28 @@ def download_ticker(ticker: str, columns: list[str]) -> pd.DataFrame:
     data = data.loc[:, columns].copy()
     data.index = remove_timezone(data.index)
     return data[~data.index.duplicated(keep="last")].sort_index()
+
+
+def download_daily_indicators(
+    index: pd.Index, period: str = "5y"
+) -> pd.DataFrame:
+    indicators = {}
+    for column, ticker in DAILY_INDICATORS.items():
+        raw = yf.download(
+            ticker,
+            period=period,
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+        if raw.empty:
+            raise RuntimeError(f"لم تُرجع yfinance بيانات يومية للرمز {ticker}.")
+        raw = flatten_yfinance_columns(raw)
+        if "Close" not in raw.columns:
+            raise RuntimeError(f"عمود Close غير متاح للرمز {ticker}.")
+        indicators[column] = align_lagged_daily_close(raw["Close"], index)
+    return pd.DataFrame(indicators, index=index)
 
 
 def check_yfinance_connection() -> None:
@@ -225,7 +248,8 @@ def build_dataset() -> pd.DataFrame:
         columns={"Close": "DXY"}
     )
 
-    data = gold.join([oil, treasury, dollar], how="left").ffill().dropna()
+    data = gold.join([oil, treasury, dollar], how="left")
+    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
     data = add_technical_features(data)
     data = add_relative_features(data)
 

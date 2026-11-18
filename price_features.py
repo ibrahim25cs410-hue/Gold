@@ -5,6 +5,49 @@ import pandas as pd
 
 
 TARGET_COLUMNS = ["Target_High", "Target_Low", "Target_Close"]
+RISK_FEATURE_COLUMNS = [
+    "GVZ_level",
+    "VIX_level",
+    "GVZ_ret_1d",
+    "VIX_ret_1d",
+    "GVZ_zscore",
+    "VIX_zscore",
+    "GVZ_x_DXY",
+]
+
+
+def align_lagged_daily_close(
+    daily_close: pd.Series, index: pd.Index
+) -> pd.Series:
+    daily = pd.to_numeric(daily_close, errors="coerce").copy()
+    daily_index = pd.DatetimeIndex(pd.to_datetime(daily.index, errors="coerce"))
+    if daily_index.isna().any():
+        raise ValueError("Daily indicator data contains invalid dates.")
+    if daily_index.tz is not None:
+        daily_index = daily_index.tz_localize(None)
+    daily.index = daily_index.normalize()
+    daily = daily.loc[~daily.index.duplicated(keep="last")].sort_index().shift(1)
+
+    target_index = pd.DatetimeIndex(pd.to_datetime(index, errors="coerce"))
+    if target_index.isna().any():
+        raise ValueError("Target data contains invalid dates.")
+    if target_index.tz is not None:
+        target_index = target_index.tz_localize(None)
+    aligned = daily.reindex(target_index.normalize(), method="ffill")
+    aligned.index = index
+    return aligned
+
+
+def _fear_features(data: pd.DataFrame) -> pd.DataFrame:
+    features = pd.DataFrame(index=data.index)
+    for name in ("GVZ", "VIX"):
+        level = data[f"{name}_Close"]
+        features[f"{name}_level"] = level
+        features[f"{name}_ret_1d"] = level.pct_change(fill_method=None)
+        rolling = level.rolling(20, min_periods=20)
+        deviation = rolling.std(ddof=0).replace(0, np.nan)
+        features[f"{name}_zscore"] = (level - rolling.mean()) / deviation
+    return features
 
 
 def completed_bar_trend(close: pd.Series, index: pd.Index, rule: str) -> pd.Series:
@@ -77,14 +120,16 @@ def daily_features(data: pd.DataFrame) -> pd.DataFrame:
     features["Month"] = data.index.month
     features["DayOfWeek"] = data.index.dayofweek
     features["Is_Year_End"] = (data.index.month == 12).astype("int8")
+    features = features.join(_fear_features(data))
+    features["GVZ_x_DXY"] = features["GVZ_level"] * data["DXY_Close"]
     return features.replace([np.inf, -np.inf], np.nan)
 
 
 def hourly_features(data: pd.DataFrame) -> pd.DataFrame:
     excluded = {
         "Open", "High", "Low", "Close", "Volume", "Oil_Close",
-        "US10Y_Yield", "DXY", *TARGET_COLUMNS, "Target_Close_8h",
-        "Direction_Label",
+        "US10Y_Yield", "DXY", "GVZ_Close", "VIX_Close", *TARGET_COLUMNS,
+        "Target_Close_8h", "Direction_Label",
     }
     columns = [
         column for column in data.columns
@@ -93,4 +138,12 @@ def hourly_features(data: pd.DataFrame) -> pd.DataFrame:
     features = data.drop(columns=columns, errors="ignore").select_dtypes(
         include=np.number
     )
+    day_index = pd.DatetimeIndex(data.index).normalize()
+    daily_values = data[["GVZ_Close", "VIX_Close"]].copy()
+    daily_values.index = day_index
+    daily_values = daily_values.groupby(level=0, sort=True).first()
+    daily_risk_features = _fear_features(daily_values).reindex(day_index)
+    daily_risk_features.index = data.index
+    features = features.join(daily_risk_features)
+    features["GVZ_x_DXY"] = data["GVZ_Close"] * data["DXY"]
     return features.replace([np.inf, -np.inf], np.nan)

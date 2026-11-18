@@ -16,6 +16,7 @@ import yfinance as yf
 from build_dataset import (
     add_relative_features,
     add_technical_features,
+    download_daily_indicators,
     download_ticker,
 )
 from price_features import (
@@ -102,7 +103,8 @@ def _fetch_live_hourly() -> pd.DataFrame:
         columns={"Close": "US10Y_Yield"}
     )
     dollar = download_ticker("DX-Y.NYB", ["Close"]).rename(columns={"Close": "DXY"})
-    data = gold.join([oil, treasury, dollar], how="left").ffill().dropna()
+    data = gold.join([oil, treasury, dollar], how="left")
+    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
     data = add_relative_features(add_technical_features(data))
     for lag in (1, 2, 3, 5, 10, 20):
         data[f"Close_Lag_{lag}"] = data["Close"].shift(lag)
@@ -146,7 +148,9 @@ def _fetch_live_daily() -> pd.DataFrame:
         else:
             part = raw[["Close"]].rename(columns={"Close": f"{name}_Close"})
         frames.append(part)
-    return frames[0].join(frames[1:], how="left").sort_index().ffill().dropna()
+    data = frames[0].join(frames[1:], how="left").sort_index()
+    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
+    return data
 
 
 def _download_live_daily() -> pd.DataFrame:

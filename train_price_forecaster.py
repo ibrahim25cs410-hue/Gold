@@ -13,7 +13,9 @@ from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from build_dataset import download_daily_indicators
 from price_features import (
+    RISK_FEATURE_COLUMNS,
     TARGET_COLUMNS,
     blend_returns,
     daily_features,
@@ -61,7 +63,9 @@ def download_daily() -> pd.DataFrame:
         else:
             part = raw[["Close"]].rename(columns={"Close": f"{name}_Close"})
         frames.append(part)
-    return frames[0].join(frames[1:], how="left").sort_index().ffill().dropna()
+    data = frames[0].join(frames[1:], how="left").sort_index()
+    data = data.join(download_daily_indicators(data.index)).ffill().dropna()
+    return data
 
 
 def make_targets(data: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -322,6 +326,7 @@ def train_horizon(
     horizon: int,
     data: pd.DataFrame,
     features: pd.DataFrame,
+    comparison_label: str | None = None,
 ) -> dict:
     targets, target_prices = make_targets(data, horizon)
     frame = features.join(targets).replace([np.inf, -np.inf], np.nan).dropna()
@@ -451,6 +456,7 @@ def train_horizon(
         model_metrics["mae_close_usd"] < baseline_metrics["mae_close_usd"]
     )
     print(
+        f"{comparison_label + ' | ' if comparison_label else ''}"
         f"Horizon {horizon} ({'hourly' if horizon == 1 else 'trading days'}): "
         f"train={len(train_indices)} tune={len(tuning_indices)} "
         f"calibration={len(calibration_indices)} holdout={len(test_indices)} | "
@@ -507,19 +513,80 @@ def main() -> None:
     np.random.seed(SEED)
     torch.manual_seed(SEED)
     hourly = pd.read_csv(HOURLY_FILE, parse_dates=["Date"]).set_index("Date")
-    hourly_data = hourly.copy()
-    hourly_features_data = hourly_features(hourly)
     daily = download_daily()
-    daily_features_data = daily_features(daily)
-    models = {
-        1: train_horizon(1, hourly_data, hourly_features_data),
-        7: train_horizon(7, daily, daily_features_data),
-        30: train_horizon(30, daily, daily_features_data),
+    inputs = {
+        1: (hourly, hourly_features(hourly)),
+        7: (daily, daily_features(daily)),
+        30: (daily, daily_features(daily)),
     }
+    models = {}
+    comparison = {}
+    for horizon, (data, risk_features) in inputs.items():
+        baseline_features = risk_features.drop(
+            columns=RISK_FEATURE_COLUMNS, errors="raise"
+        )
+        common_rows = risk_features.notna().all(axis=1)
+        data = data.loc[common_rows]
+        risk_features = risk_features.loc[common_rows]
+        baseline_features = baseline_features.loc[common_rows]
+
+        np.random.seed(SEED)
+        torch.manual_seed(SEED)
+        without_risk = train_horizon(
+            horizon, data, baseline_features, comparison_label="Without GVZ/VIX"
+        )
+        np.random.seed(SEED)
+        torch.manual_seed(SEED)
+        with_risk = train_horizon(
+            horizon, data, risk_features, comparison_label="With GVZ/VIX"
+        )
+        baseline_mae = without_risk["metrics"]["mae_close_usd"]
+        risk_mae = with_risk["metrics"]["mae_close_usd"]
+        skill_score = (
+            100.0 * (baseline_mae - risk_mae) / baseline_mae
+            if baseline_mae
+            else 0.0
+        )
+        comparison[horizon] = {
+            "without_risk_close_mae_usd": baseline_mae,
+            "with_risk_close_mae_usd": risk_mae,
+            "skill_score_pct": skill_score,
+            "without_risk_coverage_95_pct": without_risk["range_coverage_95_pct"],
+            "without_risk_coverage_99_pct": without_risk["range_coverage_99_pct"],
+            "with_risk_coverage_95_pct": with_risk["range_coverage_95_pct"],
+            "with_risk_coverage_99_pct": with_risk["range_coverage_99_pct"],
+        }
+        with_risk["risk_feature_comparison"] = comparison[horizon]
+        models[horizon] = with_risk
+
+    comparison_rows = [
+        {
+            "Horizon": f"{horizon}{'H' if horizon == 1 else 'D'}",
+            "Close MAE without GVZ/VIX ($)": result["without_risk_close_mae_usd"],
+            "Close MAE with GVZ/VIX ($)": result["with_risk_close_mae_usd"],
+            "Skill Score (%)": result["skill_score_pct"],
+            "Coverage 95% without/with": (
+                f"{result['without_risk_coverage_95_pct']:.2f} / "
+                f"{result['with_risk_coverage_95_pct']:.2f}"
+            ),
+            "Coverage 99% without/with": (
+                f"{result['without_risk_coverage_99_pct']:.2f} / "
+                f"{result['with_risk_coverage_99_pct']:.2f}"
+            ),
+        }
+        for horizon, result in comparison.items()
+    ]
+    print("\nPaired risk-feature ablation on identical chronological splits:")
+    print(
+        pd.DataFrame(comparison_rows).to_string(
+            index=False, float_format=lambda value: f"{value:.3f}"
+        )
+    )
     joblib.dump(
         {
             "version": 1,
             "models": models,
+            "risk_feature_comparison": comparison,
             "created_at": pd.Timestamp.now(tz="UTC").isoformat(),
             "horizons": (1, 7, 30),
         },

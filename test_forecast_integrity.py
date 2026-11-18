@@ -6,7 +6,12 @@ import pandas as pd
 
 import aura_price_engine as engine
 from build_dataset import add_relative_features
-from price_features import sequence_window
+from price_features import (
+    align_lagged_daily_close,
+    daily_features,
+    hourly_features,
+    sequence_window,
+)
 from train_price_forecaster import (
     chronological_split,
     metrics,
@@ -16,6 +21,69 @@ from train_price_forecaster import (
 
 
 class ForecastIntegrityTests(unittest.TestCase):
+    def test_daily_fear_indicators_are_lagged_and_forward_filled(self) -> None:
+        source_index = pd.date_range("2025-01-01", periods=4, freq="D")
+        source = pd.Series([10.0, 20.0, 30.0, 40.0], index=source_index)
+        target_index = pd.DatetimeIndex(
+            ["2025-01-01", "2025-01-02", "2025-01-03", "2025-01-04", "2025-01-05"]
+        )
+
+        aligned = align_lagged_daily_close(source, target_index)
+
+        self.assertTrue(np.isnan(aligned.iloc[0]))
+        np.testing.assert_array_equal(
+            aligned.iloc[1:].to_numpy(), [10.0, 20.0, 30.0, 30.0]
+        )
+
+    def test_future_fear_index_values_do_not_change_prior_features(self) -> None:
+        daily_index = pd.date_range("2025-01-01", periods=40, freq="D")
+        daily = pd.DataFrame(
+            {
+                "Open": 2000.0,
+                "Gold_High": 2010.0,
+                "Gold_Low": 1990.0,
+                "Close": np.linspace(2000.0, 2040.0, len(daily_index)),
+                "Volume": 1000.0,
+                "Oil_Close": 70.0,
+                "US10Y_Close": 4.0,
+                "DXY_Close": np.linspace(100.0, 104.0, len(daily_index)),
+                "GVZ_Close": np.linspace(20.0, 40.0, len(daily_index)),
+                "VIX_Close": np.linspace(15.0, 35.0, len(daily_index)),
+            },
+            index=daily_index,
+        )
+        cutoff = daily_index[28]
+        changed_daily = daily.copy()
+        future = changed_daily.index > cutoff
+        changed_daily.loc[future, ["GVZ_Close", "VIX_Close"]] *= 3
+
+        daily_features_original = daily_features(daily)
+        daily_features_changed = daily_features(changed_daily)
+        pd.testing.assert_frame_equal(
+            daily_features_original.loc[:cutoff],
+            daily_features_changed.loc[:cutoff],
+        )
+
+        hourly_index = pd.date_range("2025-01-01", periods=40 * 24, freq="h")
+        hourly = pd.DataFrame(
+            {
+                "Close": np.linspace(2000.0, 2040.0, len(hourly_index)),
+                "DXY": np.linspace(100.0, 104.0, len(hourly_index)),
+                "GVZ_Close": np.repeat(daily["GVZ_Close"].to_numpy(), 24),
+                "VIX_Close": np.repeat(daily["VIX_Close"].to_numpy(), 24),
+            },
+            index=hourly_index,
+        )
+        hourly_cutoff = hourly_index[28 * 24 + 12]
+        changed_hourly = hourly.copy()
+        hourly_future = changed_hourly.index > hourly_cutoff
+        changed_hourly.loc[hourly_future, ["GVZ_Close", "VIX_Close"]] *= 3
+
+        pd.testing.assert_frame_equal(
+            hourly_features(hourly).loc[:hourly_cutoff],
+            hourly_features(changed_hourly).loc[:hourly_cutoff],
+        )
+
     def test_resampled_trends_do_not_change_when_future_prices_change(self) -> None:
         index = pd.date_range("2025-01-01", periods=1500, freq="h")
         close = pd.Series(2000 + np.arange(len(index)) * 0.1, index=index)
