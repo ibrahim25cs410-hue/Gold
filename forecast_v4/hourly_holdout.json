@@ -1,0 +1,12 @@
+{
+  "protocol": "GC=F fixed elapsed hour audit of the existing live ledger",
+  "start_utc": "2026-11-23T00:00:00",
+  "end_utc": "2027-01-04T00:00:00",
+  "timestamp_convention": "UTC for all naive ledger timestamps",
+  "eligible": "Target equals reference candle close plus 3600 seconds. Reference close precedes or equals issue, issue precedes target, and the identical priced label is observed at or after target. Record issue latency separately.",
+  "primary_metric": "Paired MAE difference original minus each baseline on common settled origins",
+  "baselines": ["last known close", "pre-existing drift20 based on mean of the last 20 observed log returns"],
+  "direction": "Signs relative to reference, exact ties are a separate class",
+  "stability_analysis": "Absolute actual movement at most USD 1 per ounce defines the stable descriptive subgroup",
+  "uncertainty": "Paired resampling of chronological trading-session blocks, sensitivity to two-session blocks and elapsed issue latency, report descriptively if fewer than 10 independent session blocks"
+}

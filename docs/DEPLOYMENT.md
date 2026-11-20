@@ -1,0 +1,3 @@
+# Deployment
+
+Production uses Docker with a server-local SQLite volume and a systemd timer. This source release is deliberately separate from the deployed revision. Use isolated state and a disabled application worker for verification, then run scheduler scenarios against an independent database. Validate container health, authorized model fingerprints, exact candle targets and SQLite integrity. A production rollout requires separate approval, a recoverable snapshot, preserved model and data identities, and a rollback procedure using the previous image and configuration. Never attach staging to the production volume.

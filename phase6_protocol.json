@@ -1,0 +1,34 @@
+{
+  "horizon": 30,
+  "window": 400,
+  "calibration": 90,
+  "alpha": 150,
+  "shrink": 0.25,
+  "candidates": {
+    "A": [
+      "gold",
+      "technical",
+      "futures",
+      "calendar",
+      "policy"
+    ],
+    "B": [
+      "gold",
+      "policy",
+      "policy_vol"
+    ]
+  },
+  "robustness": [
+    "A vs market",
+    "B vs gold",
+    "A 7 calendar day delayed placebo",
+    "A 250 row window",
+    "A rate levels and change",
+    "A Elastic Net",
+    "A CatBoost"
+  ],
+  "family_size": 7,
+  "minimum_gain_usd": 1,
+  "live_classification": "research shadow only",
+  "phase5_run": "phase5-r3"
+}

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aura Gold AI</title>
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>try{var s=localStorage.getItem("ag-theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");document.documentElement.dataset.theme=s;var l=localStorage.getItem("ag-lang")||"ar";document.documentElement.lang=l;document.documentElement.dir=l==="ar"?"rtl":"ltr"}catch(e){}</script>
+<style>
+:root{--bg:#09090b;--card:#ffffff0b;--card2:#ffffff12;--line:#ffffff17;--text:#f5f5f7;--mut:#9a9aa6;--gold:#e8b84f;--g1:#fff1c6;--g2:#e8b84f;--up:#32d583;--down:#ff5c6c;--glow:#e8b84f26;--on:#1b1405;--shadow:0 20px 60px #0006}
+html[data-theme=light]{--bg:#f3f2ee;--card:#ffffffd9;--card2:#00000008;--line:#00000014;--text:#17171b;--mut:#6c6c78;--gold:#b7821a;--g1:#8a5c08;--g2:#c9921f;--up:#0f9d63;--down:#d93a4a;--glow:#e8b84f33;--on:#fff;--shadow:0 16px 40px #0000001a}
+*{box-sizing:border-box;margin:0}
+html[lang=ar]{font-family:"IBM Plex Sans Arabic",Tajawal,"Segoe UI",Tahoma,sans-serif;line-height:1.75}
+html[lang=en]{font-family:Inter,"Segoe UI",system-ui,sans-serif;line-height:1.55;letter-spacing:-.01em}
+body{background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(700px 420px at 90% -5%,var(--glow),transparent 70%),radial-gradient(600px 400px at 0% 0%,#4a78b422,transparent 70%)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.num{display:inline-block;direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums;letter-spacing:0}
+.wrap{position:relative;width:min(1200px,calc(100% - 32px));margin:auto}
+/* nav */
+nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(22px) saturate(1.4);background:color-mix(in srgb,var(--bg) 70%,transparent);border-bottom:1px solid var(--line)}
+.nav{display:flex;align-items:center;justify-content:space-between;min-height:64px;padding:10px 0}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:17px}
+.brand img{width:36px;height:36px;border-radius:11px;object-fit:cover}
+.tools{display:flex;align-items:center;gap:8px}
+.nav-links{display:flex;align-items:center;gap:8px;direction:ltr}
+.nav-link{flex:0 0 40px;width:40px;height:40px;padding:0;justify-content:center;border-radius:14px;transition:background-color .2s ease,border-color .2s ease,box-shadow .2s ease,transform .2s ease}
+.chip{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:600;color:var(--text)}
+.chip.icon{flex:0 0 40px;width:40px;height:40px;padding:0;justify-content:center;border-radius:14px}
+.chip#lang{min-width:76px;justify-content:center;direction:ltr;white-space:nowrap}
+.clock{min-width:92px;justify-content:center;direction:ltr;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.chip:hover{background:var(--card2);border-color:color-mix(in srgb,var(--gold) 42%,var(--line));box-shadow:0 6px 18px var(--glow)}
+.chip.icon:hover{transform:translateY(-1px)}
+.chip:active{transform:translateY(0) scale(.96)}
+.chip.icon:active{transform:scale(.94)}
+.nav-link[aria-current=true]{color:var(--gold);background:color-mix(in srgb,var(--gold) 12%,var(--card));border-color:color-mix(in srgb,var(--gold) 52%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 10%,transparent),0 8px 20px var(--glow)}
+.nav-link .i,.chip.icon .i{transition:transform .25s ease,filter .25s ease}
+.chip.icon:hover .i{filter:drop-shadow(0 0 5px var(--glow))}
+.dot{width:8px;height:8px;border-radius:50%;background:#8a8a95;flex:none}
+.dot.ok{background:var(--up);box-shadow:0 0 10px var(--up)}.dot.err{background:var(--down)}.dot.busy{background:var(--gold);animation:p 1s infinite}
+@keyframes p{50%{opacity:.35}}
+svg.i{display:block;width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+/* title */
+.top{padding:38px 0 26px}
+.top h1{font-size:clamp(30px,5vw,52px);font-weight:800;line-height:1.2;max-width:760px}
+html[lang=en] .top h1{letter-spacing:-.035em}
+.top p{color:var(--mut);margin-top:10px;max-width:640px;font-size:15px}
+/* bento */
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px;padding-bottom:40px}
+.c12{grid-column:span 12}.c8{grid-column:span 8}.c7{grid-column:span 7}.c5{grid-column:span 5}.c4{grid-column:span 4}
+.card{background:var(--card);border:1px solid var(--line);border-radius:28px;padding:26px;box-shadow:var(--shadow);backdrop-filter:blur(18px)}
+.card h2{font-size:14px;font-weight:600;color:var(--mut);margin-bottom:16px}
+.hero{display:grid;grid-template-columns:1.15fr 1fr;gap:34px;background:linear-gradient(145deg,var(--card2),var(--card));overflow:hidden;position:relative}
+.hero::after{content:"";position:absolute;inset-inline-start:-90px;bottom:-120px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,var(--glow),transparent 70%);pointer-events:none}
+.lbl{font-size:14px;color:var(--mut);font-weight:500}
+.price{font-size:clamp(46px,8.5vw,84px);font-weight:800;line-height:1.1;margin:6px 0 10px;background:linear-gradient(180deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.live-price{font-size:clamp(38px,5vw,60px);font-weight:800;line-height:1.1;margin:18px 0;background:linear-gradient(180deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.live-status{display:flex;align-items:center;gap:8px;color:var(--up);font-size:13px;font-weight:600;margin-bottom:20px}
+.forecast-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.forecast-item{padding:16px;border:1px solid var(--line);border-radius:18px;background:var(--card2);text-align:start}
+.forecast-item.active{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+.forecast-item small,.forecast-item span{display:block;color:var(--mut);font-size:12px}
+.forecast-item b{display:block;font-size:20px;margin:6px 0}
+.forecast-item .range{color:var(--mut);line-height:1.6}
+.making-total{font-size:28px;font-weight:800;color:var(--gold);margin:8px 0 16px}
+.making-results{display:grid;gap:0}
+html[lang=en] .price,html[lang=en] .live-price{letter-spacing:-.04em}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.badge{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-radius:99px;font-weight:700;font-size:14px;background:var(--card2);border:1px solid var(--line)}
+.badge.up{color:var(--up);background:color-mix(in srgb,var(--up) 14%,transparent);border-color:color-mix(in srgb,var(--up) 40%,transparent)}
+.badge.down{color:var(--down);background:color-mix(in srgb,var(--down) 14%,transparent);border-color:color-mix(in srgb,var(--down) 40%,transparent)}
+.badge.neutral{color:var(--mut);background:var(--card2);border-color:var(--line)}
+.sub{font-size:13px;color:var(--mut)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
+.stat span{display:block;font-size:12px;color:var(--mut)}.stat b{font-size:17px;font-weight:700}
+.panel{display:flex;flex-direction:column;gap:18px;position:relative;z-index:1}
+.field label{display:block;font-size:12px;color:var(--mut);margin-bottom:8px;font-weight:500}
+.seg{--n:3;--i:0;--dir:1;position:relative;display:grid;grid-template-columns:repeat(var(--n),1fr);background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:4px}
+[dir=rtl] .seg{--dir:-1}
+.seg::before{content:"";position:absolute;top:4px;bottom:4px;inset-inline-start:4px;width:calc((100% - 8px)/var(--n));border-radius:10px;background:linear-gradient(135deg,var(--g2),var(--g1));transform:translateX(calc(var(--i)*100%*var(--dir)));transition:transform .28s cubic-bezier(.3,.9,.3,1)}
+.seg button{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;min-height:38px;padding:3px 4px;border:0;background:none;text-align:center;line-height:1.15;font-size:clamp(11px,1.3vw,13px);font-weight:600;color:var(--mut);text-wrap:balance;overflow-wrap:anywhere;transition:color .2s}
+.seg button[aria-pressed=true]{color:var(--on)}
+.run{height:54px;border:0;border-radius:16px;font-weight:700;font-size:16px;color:var(--on);background:linear-gradient(135deg,var(--g2),var(--g1));box-shadow:0 10px 30px var(--glow);transition:transform .15s}
+html[data-theme=light] .run{color:#fff;background:linear-gradient(135deg,#c9921f,#a56e0d)}
+.run:hover{transform:translateY(-1px)}.run:active{transform:scale(.98)}.run:disabled{opacity:.6;cursor:wait}
+.acts{display:flex;gap:10px}.acts .chip{flex:1;justify-content:center;height:42px;border-radius:14px}
+.error-message{display:none;padding:12px 14px;border-radius:14px;font-size:13px;background:color-mix(in srgb,var(--down) 12%,transparent);border:1px solid color-mix(in srgb,var(--down) 40%,transparent);color:var(--down)}
+.error-message.show{display:block}
+/* chart */
+.chartbox{position:relative;height:300px;direction:ltr}
+.empty{position:absolute;inset:0;display:grid;place-content:center;text-align:center;color:var(--mut);direction:inherit;gap:2px}
+.empty b{color:var(--text);font-size:16px}
+.lg{display:flex;gap:18px;font-size:12px;color:var(--mut);margin-top:12px}
+.lg i{display:inline-block;width:18px;height:3px;border-radius:2px;background:var(--gold);margin-inline-end:7px;vertical-align:middle}
+.lg i.f{background:repeating-linear-gradient(90deg,var(--gold) 0 5px,transparent 5px 9px)}
+.lg i.r{height:8px;background:color-mix(in srgb,var(--gold) 25%,transparent)}
+/* insight */
+.kv{display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line);font-size:13px}
+.kv span{color:var(--mut)}.kv b{font-weight:600}
+/* units */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{text-align:start;padding:16px;border-radius:18px;border:1px solid var(--line);background:var(--card2);transition:.2s}
+.tile.on{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 12%,transparent)}
+.tile span{display:block;font-weight:600;font-size:14px}.tile small{display:block;color:var(--mut);font-size:11px;margin-bottom:8px}
+.tile b{font-size:17px;font-weight:700}
+.iqd{margin-top:14px;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:16px;background:var(--card2);font-size:13px;color:var(--mut)}
+.iqd b{font-size:16px;color:var(--text)}
+/* converter */
+.cv{display:grid;gap:12px}
+.cv input,.cv select{width:100%;height:50px;padding:0 16px;border-radius:14px;background:var(--card2);border:1px solid var(--line);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.cv input:focus,.cv select:focus{outline:0;border-color:var(--gold)}
+.cv select{appearance:auto}
+.note{font-size:12px;color:var(--mut);margin-top:12px}
+footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 32px;border-top:1px solid var(--line)}
+.skel{animation:p 1s infinite}
+@media(max-width:900px){.c8,.c7,.c5,.c4{grid-column:span 12}.hero{grid-template-columns:1fr;gap:24px}.forecast-list{grid-template-columns:repeat(3,1fr)}.seg button{font-size:12px}}
+@media(max-width:600px){.wrap{width:min(100% - 24px,1200px)}.nav{align-items:flex-start;gap:10px}.brand{font-size:15px}.tools{gap:6px;flex-wrap:wrap;justify-content:flex-end}.nav-links{gap:6px}.seg{width:100%}.seg button{min-height:42px;padding-inline:2px;font-size:11px}.forecast-list{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.card{padding:20px;border-radius:24px}.stats{grid-template-columns:1fr 1fr}.chip .tx{display:none}.chip.pill{padding:0 12px}.chip#lang{min-width:40px;padding:0}.top{padding-top:26px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+body[data-page=dashboard] main.grid>#converterCard,body[data-page=dashboard] main.grid>#makingCard{display:none}
+body[data-page=converter] main.grid>section,body[data-page=making] main.grid>section{display:none}
+body[data-page=converter] main.grid>#converterCard,body[data-page=making] main.grid>#makingCard{display:block;grid-column:span 12}
+#performanceCenter td,#performanceCenter th{padding:6px 10px;text-align:start;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body data-page="dashboard">
+<nav><div class="wrap nav">
+  <div class="brand"><img src="icon.png" alt="" onerror="this.style.display='none'"><span>Aura Gold AI</span></div>
+  <div class="tools">
+    <div class="nav-links">
+      <button class="chip icon nav-link" id="homeNav" type="button" aria-label="Home"><svg class="i" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/></svg></button>
+      <button class="chip icon nav-link" id="converterNav" type="button" aria-label="Converter"><svg class="i" viewBox="0 0 24 24"><path d="M7 7h10M7 17h10M10 4 7 7l3 3M14 14l3 3-3 3"/></svg></button>
+      <button class="chip icon nav-link" id="makingNav" type="button" aria-label="Making calculator"><svg class="i" viewBox="0 0 24 24"><path d="M6 3h12v18H6zM9 7h6M9 11h1M13 11h1M9 15h1M13 15h1M9 19h6"/></svg></button>
+    </div>
+    <div class="chip pill" role="status"><i class="dot" id="dot"></i><span class="tx" id="st"></span></div>
+    <div class="chip clock" role="timer" aria-live="off"><span id="appClock">--:--:--</span></div>
+    <button class="chip icon" id="theme" aria-label="Theme" type="button"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+    <button class="chip" id="lang" type="button"></button>
+  </div>
+</div></nav>
+
+<div class="wrap">
+<header class="top"><h1 data-i="title"></h1><p data-i="desc"></p></header>
+
+<main class="grid">
+  <section class="card hero c8" aria-live="polite">
+    <div>
+      <div class="lbl" data-i="plabel"></div>
+      <div class="price"><span class="num" id="price">—</span></div>
+      <div class="meta"><span class="badge" id="horizonBadge">—</span><span class="sub" id="hz"></span></div>
+      <div class="stats">
+        <div class="stat"><span data-i="cur"></span><b class="num" id="cur">—</b></div>
+        <div class="stat"><span data-i="low"></span><b class="num" id="low">—</b></div>
+        <div class="stat"><span data-i="high"></span><b class="num" id="high">—</b></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="field"><label data-i="hor"></label><div class="seg" id="hseg" style="--n:3"><button data-v="1"></button><button data-v="7"></button><button data-v="30"></button></div></div>
+      <div class="field"><label data-i="unit"></label><div class="seg" id="useg" style="--n:4"><button data-v="ounce"></button><button data-v="g24"></button><button data-v="g21"></button><button data-v="g18"></button></div></div>
+      <div class="error-message" id="err" role="alert"></div>
+    </div>
+  </section>
+
+  <section class="card c4 live-card" aria-live="polite">
+    <h2 data-i="liveTitle"></h2>
+    <div class="live-price"><span class="num" id="livePrice">—</span></div>
+    <div class="live-status"><i class="dot ok"></i><span id="liveNow" data-i="liveNow"></span></div>
+    <div class="kv"><span data-i="liveAsOf"></span><b id="liveAsOf">—</b></div>
+    <div class="kv"><span data-i="source"></span><b id="liveSource">Yahoo Finance</b></div>
+    <p class="note" data-i="liveNote"></p>
+  </section>
+
+  <section class="card c12">
+    <h2 data-i="forecastList"></h2>
+    <div class="forecast-list" id="forecastList"></div>
+  </section>
+
+  <section class="card c8">
+    <h2 data-i="chart"></h2>
+    <div class="chartbox"><canvas id="cv"></canvas><div class="empty" id="empty"><b data-i="e1"></b><span data-i="e2"></span></div></div>
+    <div class="lg"><span><i></i><span data-i="cur"></span></span><span><i class="f"></i><span data-i="lf"></span></span><span><i class="r"></i><span data-i="range95"></span></span><span><i class="r" style="opacity:.9"></i><span data-i="range80"></span></span></div>
+  </section>
+
+  <section class="card c4">
+    <h2 data-i="acc"></h2>
+    <div class="kv"><span data-i="model"></span><b id="modelName">—</b></div>
+    <div class="kv"><span data-i="closeMae"></span><b id="closeMae" class="num">—</b></div>
+    <div class="kv"><span data-i="closeMape"></span><b id="closeMape">—</b></div>
+    <div class="kv"><span data-i="baselineMae"></span><b id="baselineMae">—</b></div>
+    <div class="kv"><span data-i="skill"></span><b id="skill">—</b></div>
+    <div class="kv"><span data-i="coverage80"></span><b id="coverage80">—</b></div>
+    <div class="kv"><span data-i="coverage95"></span><b id="coverage95">—</b></div>
+    <div class="kv"><span data-i="volatility"></span><b id="volatility" class="num">—</b></div>
+    <div class="kv"><span data-i="baseline"></span><b id="baselineStatus">—</b></div>
+    <p class="note" data-i="warn"></p>
+  </section>
+
+  <section class="card c7">
+    <h2 data-i="all"></h2>
+    <div class="tiles" id="tiles"></div>
+    <div class="iqd"><span data-i="iqdv"></span><b class="num" id="iqdv">—</b></div>
+  </section>
+
+  <section class="card c5" id="converterCard">
+    <h2 data-i="conv"></h2>
+    <div class="cv">
+      <div class="field"><label data-i="usd"></label><input id="usd" type="number" min="0" step="any" placeholder="0.00" inputmode="decimal"></div>
+      <div class="field"><label data-i="iqd"></label><input id="iqd" type="number" min="0" step="any" placeholder="0" inputmode="decimal"></div>
+      <div class="field"><label data-i="rate"></label><input id="rate" type="number" min="1" value="1550"></div>
+    </div>
+    <p class="note" data-i="rn"></p>
+  </section>
+
+  <section class="card c7" id="makingCard">
+    <h2 data-i="makingTitle"></h2>
+    <div class="cv">
+      <div class="field"><label data-i="goldWeight"></label><input id="goldWeight" type="number" min="0" step="any" placeholder="0.00" inputmode="decimal"></div>
+      <div class="field"><label data-i="makingRate"></label><input id="makingRate" type="number" min="0" step="any" placeholder="0" inputmode="decimal"></div>
+      <div class="field"><label data-i="makingKarat"></label><select id="makingKarat"><option value="g24"></option><option value="g21"></option><option value="g18"></option></select></div>
+    </div>
+    <div class="making-results">
+      <div class="kv"><span data-i="goldValue"></span><b class="num" id="goldValue">—</b></div>
+      <div class="kv"><span data-i="makingValue"></span><b class="num" id="makingValue">—</b></div>
+      <div class="kv"><span data-i="makingTotal"></span><b class="num" id="makingTotal">—</b></div>
+    </div>
+    <p class="note" data-i="makingNote"></p>
+  </section>
+<section class="card c12" id="performanceCenter">
+    <h2>AI Model Performance &amp; Testing Center</h2>
+    <p id="perfVersion"></p>
+    <label>أفق الاختبار <select id="perfH"><option value="1">1H</option><option value="7">7D</option><option value="30">30D</option></select></label>
+    <label>عينة التقييم <select id="perfMode"><option value="forward">Live Forward Test</option><option value="holdout">Final Holdout Test</option><option value="validation">Validation</option><option value="walk">Historical Backtest</option></select></label>
+    <p id="perfStatus" aria-live="polite"></p>
+    <div style="overflow-x:auto"><table id="perfTable"></table></div>
+    <div id="perfPlot" style="height:220px" hidden><canvas id="perfErrors"></canvas></div>
+    <details><summary>سجل التدريب وقرارات النشر</summary><ol id="perfHistory"></ol></details>
+  </section>
+</main>
+<footer>Future AI Team • University of Mosul © 2026</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const $=id=>document.getElementById(id),OZ=31.1035;
+const DIV={ounce:1,g24:OZ,g21:OZ*24/21,g18:OZ*24/18};
+const T={
+ar:{title:"توقع سعر الذهب ونطاقه",desc:"توقعات سعرية من بيانات السوق والنماذج المعتمدة. النتائج تقديرية وليست نصيحة استثمارية.",plabel:"السعر المتوقع للإغلاق",cur:"السعر الحالي",low:"الحد الأدنى · نطاق المخاطر 95%",high:"الحد الأعلى · نطاق المخاطر 95%",hor:"مدة التوقع",unit:"الوحدة والعيار",run:"شغّل التوقع",refresh:"تحديث",clear:"مسح",home:"الرئيسية",converterPage:"حاسبة العملات",makingPage:"حاسبة المصنعية",chart:"السعر الحالي والتوقع والنطاق",e1:"لا توجد نتائج بعد",e2:"اضغط «شغّل التوقع» لعرض المسار.",lf:"الإغلاق المتوقع",range95:"نطاق المخاطر 95%",range80:"النطاق المرجح 80%",acc:"تدقيق النموذج",model:"النموذج",closeMae:"MAE الإغلاق ($)",closeMape:"MAPE الإغلاق (%)",coverage95:"تغطية نطاق 95% في الاختبار",coverage80:"تغطية نطاق 80% في الاختبار",baselineMae:"MAE إغلاق خط الأساس ($)",skill:"المهارة مقابل خط الأساس (%)",volatility:"التقلب المحقق وفق الأفق",baseline:"تفوق على خط الأساس",yes:"نعم",no:"لا",warn:"المقاييس محسوبة على اختبار محجوب، ولا تضمن الأداء المستقبلي.",all:"التوقعات حسب الوحدة",iqdv:"القيمة بالدينار العراقي",conv:"حاسبة الدولار والدينار",usd:"المبلغ بالدولار",iqd:"المبلغ بالدينار",rate:"سعر الصرف (دينار لكل دولار)",rn:"سعر الصرف يُدخَل يدوياً وليس مباشراً من السوق.",makingTitle:"حاسبة أجور الذهب والصياغة",goldWeight:"وزن الذهب (غرام)",makingRate:"أجرة الصياغة لكل غرام ($)",makingKarat:"عيار الذهب",goldValue:"قيمة الذهب الخام",makingValue:"قيمة المصنعية",makingTotal:"الإجمالي مع المصنعية",makingNote:"الحساب تقديري حسب السعر الحالي وعيار الذهب. أدخل المصنعية بالدولار لكل غرام.",h:["الجلسة الساعية القادمة","7 أيام تداول","30 يوم تداول"],u:{ounce:"أونصة",g24:"غرام 24",g21:"غرام 21",g18:"غرام 18"},un:{ounce:"سعر الأونصة",g24:"عيار 24 · ذهب نقي",g21:"عيار 21",g18:"عيار 18"},hz:n=>n===1?"الجلسة الساعية القادمة":`أفق ${n} يوم تداول`,liveTitle:"السعر الحالي",liveNow:"بيانات السوق",marketClosed:"السوق مغلق — آخر سعر متاح",liveAsOf:"آخر تحديث",source:"المصدر",liveNote:"السعر الحالي من السوق؛ أما البطاقات الأخرى فتعرض نتائج النموذج.",forecastList:"التوقعات حسب الأفق",ready:"النموذج جاهز",busy:"جارٍ التوقع…",off:"السيرفر غير متصل",lang:"English",theme:"تبديل المظهر",now:"الآن",tgt:"الأفق",errmsg:"تعذّر الاتصال بالسيرفر. شغّل run_app.bat ثم اضغط «تحديث».",status:"الحالة"},
+en:{title:"Gold price and range forecasts",desc:"Price estimates based on market data and the approved forecasting models. Results are estimates, not investment advice.",plabel:"Expected closing price",cur:"Current price",low:"95% risk range · lower bound",high:"95% risk range · upper bound",hor:"Forecast horizon",unit:"Unit and karat",run:"Run forecast",refresh:"Refresh",clear:"Clear",home:"Home",converterPage:"Currency converter",makingPage:"Making calculator",chart:"Current price, forecast and range",e1:"No results yet",e2:"Press Run forecast to draw the forecast.",lf:"Expected close",range95:"95% risk range",range80:"80% likely range",acc:"Model audit",model:"Model",closeMae:"Close MAE ($)",closeMape:"Close MAPE (%)",coverage95:"95% holdout coverage",coverage80:"80% holdout coverage",baselineMae:"Baseline close MAE ($)",skill:"Skill vs. baseline (%)",volatility:"Horizon-scaled realized volatility",baseline:"Beats naive baseline",yes:"Yes",no:"No",warn:"Metrics are measured on a held-out test set and do not guarantee future performance.",all:"Forecast by unit",iqdv:"Value in Iraqi dinar",conv:"USD to IQD converter",usd:"Amount in USD",iqd:"Amount in IQD",rate:"Exchange rate (IQD per USD)",rn:"The exchange rate is entered manually and is not a live market feed.",makingTitle:"Gold making charge calculator",goldWeight:"Gold weight (grams)",makingRate:"Making charge per gram ($)",makingKarat:"Gold karat",goldValue:"Raw gold value",makingValue:"Making charge",makingTotal:"Total with making",makingNote:"Estimated from the current price and selected karat. Enter making charge in USD per gram.",h:["Next 1H session","7 trading days","30 trading days"],u:{ounce:"Ounce",g24:"Gram 24",g21:"Gram 21",g18:"Gram 18"},un:{ounce:"Per troy ounce",g24:"24K · pure gold",g21:"21K",g18:"18K"},hz:n=>n===1?"Next hourly session":`${n} trading days`,liveTitle:"Current gold price",liveNow:"Market data",marketClosed:"Market closed — latest available price",liveAsOf:"Last update",source:"Source",liveNote:"The current price is live market data; the other cards show model forecasts.",forecastList:"Forecasts by horizon",ready:"Model ready",busy:"Forecasting…",off:"Server offline",lang:"العربية",theme:"Toggle theme",now:"Now",tgt:"Horizon",errmsg:"Cannot reach the server. Run run_app.bat then press Refresh.",status:"Status"}
+};
+const API=location.protocol==="file:"?"http://127.0.0.1:8000":"";
+const HORIZONS=[1,7,30];
+const AUTO_REFRESH_MS=300000;
+const LIVE_QUOTE_REFRESH_MS=15000;
+const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+let lang=document.documentElement.lang==="en"?"en":"ar",theme=document.documentElement.dataset.theme,horizon=1,unit="ounce",data=null,liveQuote=null,forecasts=[],chart=null,shown=0,liveShown=0,requestInFlight=false,liveQuoteInFlight=false,priceFrame=0,livePriceFrame=0,lastChartKey="";
+const fmt=(n,d=3)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const status=(k,c)=>{$("st").textContent=T[lang][k];$("dot").className="dot "+(c||"")};
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function count(to){
+  const el=$("price"),from=shown;shown=to;
+  const frame=++priceFrame;
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches){el.textContent="$"+fmt(to);return}
+  const t0=performance.now();
+  (function f(t){if(frame!==priceFrame)return;const k=Math.min(1,(t-t0)/500),e=1-Math.pow(1-k,3);el.textContent="$"+fmt(from+(to-from)*e);if(k<1)requestAnimationFrame(f)})(t0);
+}
+
+function countLive(to){
+  const el=$("livePrice"),from=liveShown;
+  if(!from){liveShown=to;el.textContent="$"+fmt(to);return}
+  liveShown=to;
+  const frame=++livePriceFrame;
+  const t0=performance.now();
+  (function f(t){
+    if(frame!==livePriceFrame)return;
+    const k=Math.min(1,(t-t0)/500),e=1-Math.pow(1-k,3);
+    el.textContent="$"+fmt(from+(to-from)*e);
+    if(k<1)requestAnimationFrame(f);
+  })(t0);
+}
+
+function paint(){
+  const t=T[lang],h=document.documentElement;
+  h.lang=lang;h.dir=lang==="ar"?"rtl":"ltr";h.dataset.theme=theme;
+  document.querySelectorAll("[data-i]").forEach(e=>e.textContent=t[e.dataset.i]);
+  $("lang").textContent=t.lang;
+  $("lang").setAttribute("aria-label",t.lang);
+  $("theme").setAttribute("aria-label",t.theme);
+  $("homeNav").setAttribute("aria-label",t.home);
+  $("converterNav").setAttribute("aria-label",t.converterPage);
+  $("makingNav").setAttribute("aria-label",t.makingPage);
+  [...$("hseg").children].forEach((b,i)=>{b.textContent=t.h[i];const on=b.dataset.v==horizon;b.setAttribute("aria-pressed",on);if(on)$("hseg").style.setProperty("--i",i)});
+  [...$("useg").children].forEach((b,i)=>{b.textContent=t.u[b.dataset.v];const on=b.dataset.v===unit;b.setAttribute("aria-pressed",on);if(on)$("useg").style.setProperty("--i",i)});
+  [...$("makingKarat").options].forEach(option=>{option.textContent=t.u[option.value]});
+  $("theme").innerHTML=theme==="dark"?'<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>':'<svg class="i" viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg>';
+  if(!data)status("ready","ok");
+  render(false);
+  updateClock();
+}
+
+function render(animate=true){
+  const t=T[lang];
+  if(liveQuote){
+    countLive(liveQuote.current_price);
+    $("liveAsOf").textContent=liveQuote.as_of||"—";
+    $("liveSource").textContent=liveQuote.source||"Yahoo Finance";
+    $("liveNow").textContent=liveQuote.market_open===false?t.marketClosed:t.liveNow;
+  }else{
+    $("livePrice").textContent="—";
+    liveShown=0;
+    $("liveAsOf").textContent="—";
+    $("liveSource").textContent="—";
+    $("liveNow").textContent=t.liveNow;
+  }
+  renderForecasts();
+  calculateMaking();
+  const tiles=Object.keys(DIV).map(k=>`<button class="tile ${k===unit?"on":""}" data-u="${k}"><span>${t.u[k]}</span><small>${t.un[k]}</small><b class="num">${data?"$"+fmt(data.predicted_price/DIV[k]):"—"}</b></button>`).join("");
+  if($("tiles").innerHTML!==tiles)$("tiles").innerHTML=tiles;
+  if(!data){$("empty").style.display="grid";return}
+  const d=DIV[unit],tgt=data.predicted_price/d,cur=data.current_price/d;
+  animate?count(tgt):($("price").textContent="$"+fmt(tgt),shown=tgt);
+  $("horizonBadge").textContent=t.h[data.horizon===1?0:data.horizon===7?1:2];
+  $("hz").textContent=t.hz(data.horizon);
+  $("cur").textContent="$"+fmt(cur);
+  $("low").textContent="$"+fmt(data.predicted_low/d);
+  $("high").textContent="$"+fmt(data.predicted_high/d);
+  $("closeMae").textContent="$"+fmt(data.mae_close_usd,2);
+  $("closeMape").textContent=fmt(data.mape_close_pct,2)+"%";
+  $("baselineMae").textContent="$"+fmt(data.baseline_mae_close_usd,2);
+  $("skill").textContent=data.skill_score_pct===null?"—":fmt(data.skill_score_pct,2)+"%";
+  $("coverage80").textContent=fmt(data.range_coverage_80_pct,1)+"%";
+  $("coverage95").textContent=fmt(data.range_coverage_95_pct,1)+"%";
+  $("volatility").textContent="$"+fmt(data.volatility_usd/d);
+  $("baselineStatus").textContent=data.beats_baseline?t.yes:t.no;
+  $("modelName").textContent=data.model_version && data.model_version!=="original"?"Ridge":(data.horizon===1?"CatBoost + LSTM":"Ridge + CatBoost");
+  $("iqdv").textContent=fmt(tgt*(+$("rate").value||0),0)+" IQD";
+  draw(d);
+}
+
+function renderForecasts(){
+  const t=T[lang],list=$("forecastList");
+  const html=forecasts.map(item=>{
+    return `<button class="forecast-item ${item.horizon===horizon?"active":""}" data-horizon="${item.horizon}">
+      <small>${t.h[HORIZONS.indexOf(item.horizon)]}</small>
+      <b>$${fmt(item.predicted_price/DIV[unit])}</b>
+      <span class="range">${t.range95}: $${fmt(item.predicted_low/DIV[unit])} – $${fmt(item.predicted_high/DIV[unit])}</span>
+      <span class="range">${t.range80}: $${fmt(item.predicted_low_80/DIV[unit])} – $${fmt(item.predicted_high_80/DIV[unit])}</span>
+    </button>`;
+  }).join("");
+  if(list.innerHTML!==html)list.innerHTML=html;
+}
+
+function calculateMaking(){
+  const weight=+$("goldWeight").value||0,rateValue=+$("makingRate").value||0,karat=$("makingKarat").value;
+  const spot=data?.current_price||forecasts[0]?.current_price||0;
+  const raw=spot>0&&weight>0?spot/DIV[karat]*weight:0;
+  const making=weight*rateValue;
+  const total=raw+making;
+  $("goldValue").textContent=raw?"$"+fmt(raw):"—";
+  $("makingValue").textContent=making?"$"+fmt(making):"—";
+  $("makingTotal").textContent=total?"$"+fmt(total):"—";
+}
+
+function draw(d){
+  if(typeof Chart==="undefined")return;
+  const t=T[lang],cur=data.current_price/d,tgt=data.predicted_price/d,low=data.predicted_low/d,high=data.predicted_high/d;
+  const labels=[t.now,`${t.tgt} · ${data.horizon}`],gold=css("--gold"),mut=css("--mut"),ln=css("--line");
+  const low80=data.predicted_low_80/d,high80=data.predicted_high_80/d;
+  const chartKey=JSON.stringify([labels,cur,tgt,low,high,low80,high80,d]);
+  if(chart&&chartKey===lastChartKey)return;
+  lastChartKey=chartKey;
+  const datasets=[
+    {label:t.high,data:[cur,high],borderColor:css("--up"),borderDash:[4,5],borderWidth:1.5,pointRadius:[0,4],pointBackgroundColor:css("--up"),fill:false},
+    {label:t.low,data:[cur,low],borderColor:css("--down"),borderDash:[4,5],borderWidth:1.5,pointRadius:[0,4],pointBackgroundColor:css("--down"),fill:{target:0,above:gold+"22",below:gold+"22"}},
+    {label:t.range80,data:[cur,high80],borderColor:gold+"66",borderWidth:1,pointRadius:[0,3],fill:false},
+    {label:t.range80,data:[cur,low80],borderColor:gold+"66",borderWidth:1,pointRadius:[0,3],fill:{target:2,above:gold+"33",below:gold+"33"}},
+    {label:t.lf,data:[cur,tgt],borderColor:gold,borderDash:[7,5],borderWidth:2.5,pointRadius:[5,6],pointBackgroundColor:gold,fill:false}
+  ];
+  if(chart){
+    chart.data.labels=labels;
+    chart.data.datasets=datasets;
+    chart.update("active");
+  }else{
+  Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
+  chart=new Chart($("cv").getContext("2d"),{type:"line",data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,animation:{duration:700,easing:"easeOutQuart"},interaction:{mode:"index",intersect:false},
+    plugins:{legend:{display:false},tooltip:{rtl:false,backgroundColor:"#101014",borderColor:"#ffffff22",borderWidth:1,titleColor:"#9a9aa6",bodyColor:"#fff",padding:10,callbacks:{label:c=>c.raw==null?null:c.dataset.label+" · $"+fmt(c.raw)}}},
+    scales:{x:{grid:{display:false},ticks:{color:mut,maxTicksLimit:6,callback:value=>labels[value]||""}},y:{grid:{color:ln},ticks:{color:mut,callback:v=>"$"+fmt(v,0)}}}}});
+  }
+  $("empty").style.display="none";
+}
+
+async function predict(){
+  if(requestInFlight)return;
+  requestInFlight=true;
+  const backgroundRefresh=Boolean(data);
+  $("err").classList.remove("show");
+  if(!backgroundRefresh)status("busy","busy");
+  try{
+    const liveResponse=await fetch(`${API}/live-price`);
+    if(!liveResponse.ok)throw new Error("HTTP "+liveResponse.status);
+    const liveQuoteResult=await liveResponse.json();
+    if(liveQuoteResult.status==="error")throw new Error(liveQuoteResult.message||"live price error");
+    liveQuote=liveQuoteResult;
+    render(false);
+    const results=await Promise.all(HORIZONS.map(async h=>{
+      const r=await fetch(`${API}/predict?horizon=${h}`);
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const j=await r.json();
+      if(j.status==="error")throw new Error(j.message||"error");
+      const required=["current_price","predicted_price","predicted_high","predicted_low",
+        "predicted_high_80","predicted_low_80","mae_close_usd","baseline_mae_close_usd","mape_close_pct",
+        "range_coverage_80_pct","range_coverage_95_pct","volatility_usd"];
+      const missing=required.filter(key=>!Number.isFinite(j[key]));
+      if(j.skill_score_pct!==null&&!Number.isFinite(j.skill_score_pct))missing.push("skill_score_pct");
+      if(typeof j.beats_baseline!=="boolean")missing.push("beats_baseline");
+      if(missing.length)throw new Error(`Invalid forecast response: ${missing.join(", ")}`);
+      return j;
+    }));
+    forecasts=results;data=forecasts.find(item=>item.horizon===horizon)||forecasts[0];
+    horizon=data.horizon;status("ready","ok");render();
+  }catch(e){if(!backgroundRefresh)status("off","err");$("err").textContent=`${T[lang].errmsg} (${e.message||e})`;$("err").classList.add("show")}
+  finally{requestInFlight=false}
+}
+
+async function refreshLiveQuote(){
+  if(document.hidden||liveQuoteInFlight)return;
+  liveQuoteInFlight=true;
+  try{
+    const r=await fetch(`${API}/live-price`);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const quote=await r.json();
+    if(quote.status==="error")throw new Error(quote.message||"live price error");
+    liveQuote=quote;
+    render(false);
+  }catch(e){
+    console.error("Live price refresh failed:",e);
+  }finally{
+    liveQuoteInFlight=false;
+  }
+}
+
+function showPage(page){
+  document.body.dataset.page=page;
+  history.replaceState(null,"",page==="dashboard"?"#":"#"+page);
+  $("homeNav").setAttribute("aria-current",page==="dashboard"?"true":"false");
+  $("converterNav").setAttribute("aria-current",page==="converter"?"true":"false");
+  $("makingNav").setAttribute("aria-current",page==="making"?"true":"false");
+  paint();
+}
+
+function updateClock(){
+  const now=new Date();
+  $("appClock").textContent=new Intl.DateTimeFormat(lang==="ar"?"ar-IQ":"en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(now);
+}
+
+$("homeNav").onclick=()=>showPage("dashboard");
+$("converterNav").onclick=()=>showPage("converter");
+$("makingNav").onclick=()=>showPage("making");
+$("lang").onclick=()=>{lang=lang==="ar"?"en":"ar";sv("ag-lang",lang);paint()};
+$("theme").onclick=()=>{theme=theme==="dark"?"light":"dark";sv("ag-theme",theme);paint()};
+$("hseg").onclick=e=>{const b=e.target.closest("button");if(!b)return;horizon=+b.dataset.v;paint();if(data)predict()};
+$("useg").onclick=e=>{const b=e.target.closest("button");if(!b)return;unit=b.dataset.v;paint()};
+$("tiles").onclick=e=>{const b=e.target.closest("button");if(!b)return;unit=b.dataset.u;paint()};
+$("forecastList").onclick=e=>{const b=e.target.closest("[data-horizon]");if(!b)return;horizon=+b.dataset.horizon;data=forecasts.find(item=>item.horizon===horizon)||data;paint()};
+const usd=$("usd"),iqd=$("iqd"),rate=$("rate");
+const goldWeight=$("goldWeight"),makingRate=$("makingRate"),makingKarat=$("makingKarat");
+usd.oninput=()=>{const r=+rate.value;iqd.value=usd.value&&r>0?(usd.value*r).toFixed(0):""};
+iqd.oninput=()=>{const r=+rate.value;usd.value=iqd.value&&r>0?(iqd.value/r).toFixed(2):""};
+rate.oninput=()=>{const r=+rate.value;if(usd.value)iqd.value=r>0?(usd.value*r).toFixed(0):"";if(data)render(false)};
+goldWeight.oninput=calculateMaking;makingRate.oninput=calculateMaking;makingKarat.onchange=calculateMaking;
+const initialPage=location.hash==="#converter"||location.hash==="#making"?location.hash.slice(1):"dashboard";
+showPage(initialPage);
+paint();updateClock();predict();
+setInterval(updateClock,1000);
+setInterval(refreshLiveQuote,LIVE_QUOTE_REFRESH_MS);
+setInterval(()=>{if(!document.hidden)predict()},AUTO_REFRESH_MS);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){refreshLiveQuote();predict()}});
+</script>
+<script>
+let perfReport, errorPlot;
+const evidenceMessage="Insufficient Evidence — بيانات الاختبار غير كافية لإثبات تحسن النموذج.";
+const valueText=v=>v==null?"—":Number(v).toLocaleString("en-US",{maximumFractionDigits:3});
+function renderPerformance(){
+  if(!perfReport)return;
+  const h=$("perfH").value, mode=$("perfMode").value;
+  const section=perfReport.horizons[h], hist=section.historical;
+  $("perfVersion").textContent="Champion "+perfReport.active+" | Challenger "+(perfReport.challenger||"—")+
+    " | تدريب النموذج المعتمد "+perfReport.trained+" | آخر اختبار "+(perfReport.last_test||"—");
+  const table=$("perfTable");table.replaceChildren();
+  function row(values,tag="td"){
+    const tr=document.createElement("tr");
+    values.forEach(v=>{const cell=document.createElement(tag);cell.textContent=v;tr.append(cell)});table.append(tr);
+  }
+  const scored=(label,m)=>row([label,...["n","mae","rmse","bias","direction_pct","baseline_mae","skill_pct","coverage80","coverage95","width80","width95"].map(k=>valueText(m[k]))]);
+  let status=mode==="forward"?"":"الإصدار المختبَر "+(perfReport.tested_version||"—");
+    row(["النموذج / الفترة","العدد","MAE ($)","RMSE ($)","الانحياز ($)","الاتجاه %","MAE المرجع","المهارة %","تغطية 80%","تغطية 95%","عرض 80% ($)","عرض 95% ($)"],"th");
+    if(mode==="validation"){
+      Object.entries(hist?.validation||{}).forEach(([name,m])=>{
+        scored(name+" · تدريب "+m.train,m);
+        if(m.baseline)scored("Persistence · "+name,m.baseline);
+      });
+    }else if(mode==="forward"){
+      scored("Champion",section.forward);scored("Persistence",section.baseline);
+      const foundation=perfReport.foundation_configured?.[h]||[];
+      if(foundation.length){
+        const models=perfReport.foundation_forward?.[h]||{};
+        for(const [name,group] of Object.entries(models)){
+          if(group.n)scored(name+" · live paired",group.candidate);
+        }
+      }
+      if(section.paired.n){
+        scored("Champion · paired",section.paired.champion);
+        scored("Challenger · paired",section.paired.candidate);
+        if(section.paired.persistence)scored("Persistence · paired",section.paired.persistence);
+        if(section.paired.drift)scored("Drift 20 · paired",section.paired.drift);
+      }
+      if(section.paired.n<Math.max(100,10*Number(h)))status="Insufficient live evidence to establish forecasting superiority.";
+      if(foundation.length)status+=" | Shadow only: "+foundation.map(m=>m.name+" "+m.revision.slice(0,12)).join(", ")+
+        " · آخر فحص UTC "+(perfReport.foundation_last_tick_utc||"—")+
+        " · المقارنات المكتملة "+Object.values(perfReport.foundation_forward?.[h]||{}).reduce((n,g)=>n+g.n,0)+
+        " · معلقة "+Object.values(perfReport.foundation_forward?.[h]||{}).reduce((n,g)=>n+g.pending,0)+
+        " · آخر إصدار "+(Object.values(perfReport.foundation_forward?.[h]||{}).map(g=>g.last_issued_utc).sort().at(-1)||"—");
+      if(section.live){
+        const live=section.live;
+        status+=" | مجموعات "+live.groups+" · مقترنة مكتملة "+section.paired.n+
+          " · توقعات معلّقة "+live.pending+" · مكتملة "+live.completed+
+          " · آخر إصدار "+(live.latest?.issued||"—")+" · آخر إغلاق "+(live.latest_target||"—");
+        if(live.latest)status+=" · آخر توقع $"+valueText(live.latest.prediction)+" · هدف "+live.latest.target_close;
+        Object.entries(live.models||{}).forEach(([version,metrics])=>{
+          if(version.startsWith("baseline:drift20:"))scored("Drift 20 · "+version,metrics);
+        });
+      }
+      if(section.paired.paired_ci)status+=" | فاصل 95% لفرق MAE "+section.paired.paired_ci.map(valueText).join(" إلى ");
+      if(section.drift)status+=" | ارتفاع خطأ الإغلاق في آخر 50 نتيجة";
+      if(section.forward.skill_pct<0)status+=" | أداء النموذج أسوأ من مرجع ثبات السعر";
+    }else if(mode==="holdout" && hist){
+      scored("Challenger",hist.holdout);scored("Persistence",hist.baseline);
+      if(hist.previous.champion){scored("Champion · paired",hist.previous.champion);scored("Challenger · paired",hist.previous.candidate)}
+      if(hist.holdout.skill_pct<0)status+=" | أداء المرشح أسوأ من مرجع ثبات السعر";
+    }else if(mode==="walk" && hist){
+      hist.walk_forward.forEach(f=>{
+        const label=f.strategy+" · "+f.first.slice(0,10);
+        scored(label,f);
+        if(f.baseline)scored("Persistence · "+label,f.baseline);
+      });
+    }
+  $("perfStatus").textContent=status;
+  if(errorPlot){errorPlot.destroy();errorPlot=null}
+  const graph=mode==="forward"?{dates:section.dates,errors:section.errors}:mode==="holdout"?hist?.error_series:null;
+  $("perfPlot").hidden=!graph?.errors.length;
+  if(graph?.errors.length && typeof Chart!=="undefined"){
+    errorPlot=new Chart($("perfErrors"),{type:"line",data:{labels:graph.dates,datasets:[{label:"Forecast − actual (USD)",data:graph.errors,borderColor:"#b88945",pointRadius:0}]},options:{maintainAspectRatio:false}});
+  }
+  $("perfHistory").replaceChildren();
+  perfReport.events.forEach(e=>{const li=document.createElement("li");li.textContent=[e.at,e.action,e.version,e.detail].join(" · ");$("perfHistory").append(li)});
+}
+async function refreshPerformance(){
+  try{const r=await fetch(API+"/performance");if(!r.ok)throw Error(r.status);perfReport=await r.json();renderPerformance()}
+  catch(e){$("perfStatus").textContent="تعذّر تحميل سجل التقييم"}
+}
+$("perfH").onchange=renderPerformance;$("perfMode").onchange=renderPerformance;
+refreshPerformance();setInterval(()=>{if(!document.hidden)refreshPerformance()},60000);
+</script>
+</body>
+</html>
